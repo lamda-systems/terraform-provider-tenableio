@@ -1,9 +1,11 @@
 default: build
 
 BINARY=terraform-provider-tenableio
-INSTALL_DIR=~/.terraform.d/plugins/registry.terraform.io/tenable/tenableio/0.1.0/linux_amd64
+VERSION?=0.1.0
+OS_ARCH?=linux_amd64
+INSTALL_DIR=~/.terraform.d/plugins/registry.terraform.io/tenable/tenableio/$(VERSION)/$(OS_ARCH)
 
-.PHONY: build install test testacc lint docs clean
+.PHONY: build install test testacc lint docs clean release-check
 
 build:
 	go build -o $(BINARY)
@@ -24,5 +26,10 @@ lint:
 docs:
 	tfplugindocs generate
 
+release-check:
+	goreleaser check
+	goreleaser release --snapshot --clean
+
 clean:
 	rm -f $(BINARY)
+	rm -rf dist/
