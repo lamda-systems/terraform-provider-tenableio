@@ -3,7 +3,7 @@ default: build
 BINARY=terraform-provider-tenableio
 VERSION?=0.1.0
 OS_ARCH?=linux_amd64
-INSTALL_DIR=~/.terraform.d/plugins/registry.terraform.io/tenable/tenableio/$(VERSION)/$(OS_ARCH)
+INSTALL_DIR=~/.terraform.d/plugins/registry.terraform.io/lamda-systems/tenableio/$(VERSION)/$(OS_ARCH)
 
 .PHONY: build install test testacc lint docs clean release-check setup
 
@@ -24,7 +24,7 @@ lint:
 	golangci-lint run ./...
 
 docs:
-	tfplugindocs generate
+	tfplugindocs generate --provider-name tenableio
 
 release-check:
 	goreleaser check

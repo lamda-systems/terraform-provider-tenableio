@@ -11,7 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/tenable/terraform-provider-tenableio/internal/client"
+	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
 
 var (

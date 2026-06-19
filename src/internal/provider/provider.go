@@ -9,9 +9,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/tenable/terraform-provider-tenableio/internal/client"
-	"github.com/tenable/terraform-provider-tenableio/internal/datasources"
-	"github.com/tenable/terraform-provider-tenableio/internal/resources"
+	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
+	"github.com/lamda-systems/terraform-provider-tenableio/internal/datasources"
+	"github.com/lamda-systems/terraform-provider-tenableio/internal/resources"
 )
 
 var _ provider.Provider = &TenableioProvider{}

@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     tenableio = {
-      source = "registry.terraform.io/tenable/tenableio"
+      source = "registry.terraform.io/lamda-systems/tenableio"
     }
   }
 }

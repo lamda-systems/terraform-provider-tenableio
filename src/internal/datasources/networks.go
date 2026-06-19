@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/tenable/terraform-provider-tenableio/internal/client"
+	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
 
 var _ datasource.DataSource = &NetworksDataSource{}

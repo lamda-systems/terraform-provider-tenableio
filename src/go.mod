@@ -1,4 +1,4 @@
-module github.com/tenable/terraform-provider-tenableio
+module github.com/lamda-systems/terraform-provider-tenableio
 
 go 1.26
 

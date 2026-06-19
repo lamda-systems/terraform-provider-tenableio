@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/tenable/terraform-provider-tenableio/internal/provider"
+	"github.com/lamda-systems/terraform-provider-tenableio/internal/provider"
 )
 
 var version = "dev"
@@ -17,7 +17,7 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		Address: "registry.terraform.io/tenable/tenableio",
+		Address: "registry.terraform.io/lamda-systems/tenableio",
 		Debug:   debug,
 	}
 
