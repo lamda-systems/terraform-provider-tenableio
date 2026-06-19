@@ -5,7 +5,7 @@ VERSION?=0.1.0
 OS_ARCH?=linux_amd64
 INSTALL_DIR=~/.terraform.d/plugins/registry.terraform.io/tenable/tenableio/$(VERSION)/$(OS_ARCH)
 
-.PHONY: build install test testacc lint docs clean release-check
+.PHONY: build install test testacc lint docs clean release-check setup
 
 build:
 	go build -o $(BINARY)
@@ -33,3 +33,6 @@ release-check:
 clean:
 	rm -f $(BINARY)
 	rm -rf dist/
+
+setup:
+	git config core.hooksPath .githooks
