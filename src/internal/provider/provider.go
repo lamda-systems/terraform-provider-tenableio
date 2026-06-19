@@ -10,6 +10,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/tenable/terraform-provider-tenableio/internal/client"
+	"github.com/tenable/terraform-provider-tenableio/internal/datasources"
+	"github.com/tenable/terraform-provider-tenableio/internal/resources"
 )
 
 var _ provider.Provider = &TenableioProvider{}
@@ -108,9 +110,30 @@ func (p *TenableioProvider) Configure(ctx context.Context, req provider.Configur
 }
 
 func (p *TenableioProvider) Resources(_ context.Context) []func() resource.Resource {
-	return []func() resource.Resource{}
+	return []func() resource.Resource{
+		resources.NewScanResource,
+		resources.NewPolicyResource,
+		resources.NewFolderResource,
+		resources.NewExclusionResource,
+		resources.NewNetworkResource,
+		resources.NewTagCategoryResource,
+		resources.NewTagValueResource,
+		resources.NewAgentGroupResource,
+	}
 }
 
 func (p *TenableioProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{}
+	return []func() datasource.DataSource{
+		datasources.NewScansDataSource,
+		datasources.NewPoliciesDataSource,
+		datasources.NewAssetDataSource,
+		datasources.NewAssetsDataSource,
+		datasources.NewFoldersDataSource,
+		datasources.NewExclusionsDataSource,
+		datasources.NewNetworksDataSource,
+		datasources.NewScannersDataSource,
+		datasources.NewAgentGroupsDataSource,
+		datasources.NewTagCategoriesDataSource,
+		datasources.NewTagValuesDataSource,
+	}
 }

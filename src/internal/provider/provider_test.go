@@ -29,16 +29,39 @@ func TestProviderSchema(t *testing.T) {
 		t.Fatal("provider schema is nil")
 	}
 
-	attrs := resp.Provider.Block.Attributes
-	expected := map[string]bool{"access_key": false, "secret_key": false, "base_url": false}
-	for _, attr := range attrs {
-		if _, ok := expected[attr.Name]; ok {
-			expected[attr.Name] = true
+	providerAttrs := map[string]bool{"access_key": false, "secret_key": false, "base_url": false}
+	for _, attr := range resp.Provider.Block.Attributes {
+		if _, ok := providerAttrs[attr.Name]; ok {
+			providerAttrs[attr.Name] = true
 		}
 	}
-	for name, found := range expected {
+	for name, found := range providerAttrs {
 		if !found {
-			t.Errorf("expected attribute %q not found in provider schema", name)
+			t.Errorf("expected provider attribute %q not found", name)
+		}
+	}
+
+	expectedResources := []string{
+		"tenableio_scan", "tenableio_policy", "tenableio_folder",
+		"tenableio_exclusion", "tenableio_network",
+		"tenableio_tag_category", "tenableio_tag_value",
+		"tenableio_agent_group",
+	}
+	for _, name := range expectedResources {
+		if _, ok := resp.ResourceSchemas[name]; !ok {
+			t.Errorf("expected resource %q not registered", name)
+		}
+	}
+
+	expectedDataSources := []string{
+		"tenableio_scans", "tenableio_policies", "tenableio_asset", "tenableio_assets",
+		"tenableio_folders", "tenableio_exclusions", "tenableio_networks",
+		"tenableio_scanners", "tenableio_agent_groups",
+		"tenableio_tag_categories", "tenableio_tag_values",
+	}
+	for _, name := range expectedDataSources {
+		if _, ok := resp.DataSourceSchemas[name]; !ok {
+			t.Errorf("expected data source %q not registered", name)
 		}
 	}
 }
