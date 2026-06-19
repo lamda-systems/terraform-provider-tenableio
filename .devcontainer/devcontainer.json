@@ -1,0 +1,45 @@
+{
+  "name": "Tenable.io Terraform Provider",
+  "dockerComposeFile": [
+    "../compose-local.yaml",
+    "docker-compose.yml"
+  ],
+  "service": "app",
+  "workspaceFolder": "/workspaces/projects/tenableio_tf_provider",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "hashicorp.terraform",
+        "hashicorp.hcl",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "go.toolsManagement.autoUpdate": true,
+        "go.useLanguageServer": true,
+        "go.lintTool": "golangci-lint",
+        "go.lintOnSave": "package",
+        "go.testFlags": ["-v", "-count=1"],
+        "gopls": {
+          "ui.semanticTokens": true,
+          "ui.completion.usePlaceholders": true
+        },
+        "[go]": {
+          "editor.formatOnSave": true,
+          "editor.defaultFormatter": "golang.go",
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "[terraform]": {
+          "editor.formatOnSave": true,
+          "editor.defaultFormatter": "hashicorp.terraform"
+        }
+      }
+    }
+  },
+  "postCreateCommand": "go mod download 2>/dev/null || true",
+  "remoteEnv": {
+    "TF_LOG": "INFO"
+  }
+}
