@@ -24,7 +24,7 @@ lint:
 	golangci-lint run ./...
 
 docs:
-	tfplugindocs generate --provider-name tenableio
+	tfplugindocs generate --provider-name tenableio --rendered-website-dir ../docs
 
 release-check:
 	goreleaser check

@@ -1,0 +1,15 @@
+---
+page_title: "{{.ProviderName}} Provider"
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.ProviderName}} Provider
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+{{ tffile "examples/provider/main.tf" }}
+
+{{ .SchemaMarkdown | trimspace }}

@@ -54,12 +54,12 @@ cd src && TF_ACC=1 TENABLEIO_ACCESS_KEY=xxx TENABLEIO_SECRET_KEY=xxx go test ./.
 cd src && golangci-lint run ./...
 
 # Generate docs
-cd src && tfplugindocs generate
+cd src && make docs
 
 # Install locally for dev
 cd src && go build -o terraform-provider-tenableio && \
-  mkdir -p ~/.terraform.d/plugins/registry.terraform.io/tenable/tenableio/0.1.0/linux_amd64 && \
-  mv terraform-provider-tenableio ~/.terraform.d/plugins/registry.terraform.io/tenable/tenableio/0.1.0/linux_amd64/
+  mkdir -p ~/.terraform.d/plugins/registry.terraform.io/lamda-systems/tenableio/0.1.0/linux_amd64 && \
+  mv terraform-provider-tenableio ~/.terraform.d/plugins/registry.terraform.io/lamda-systems/tenableio/0.1.0/linux_amd64/
 ```
 
 ## Environment Variables
@@ -78,3 +78,34 @@ cd src && go build -o terraform-provider-tenableio && \
 - Use Terraform Plugin Framework (not SDKv2)
 - All API calls go through the centralized client in `internal/client/`
 - One file per resource/data source
+
+## Adding New Resources or Data Sources
+
+When adding a new resource or data source, documentation must be created alongside the code:
+
+1. **Example file** — Create `src/examples/resources/tenableio_<name>/main.tf` (or `data-sources/` for data sources) with realistic usage showing required and key optional attributes.
+
+2. **Template file** — Create `src/templates/resources/<name>.md.tmpl` (or `data-sources/`) using this structure:
+   ```
+   ---
+   page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+   subcategory: ""
+   description: |-
+   {{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+   ---
+
+   # {{.Name}} ({{.Type}})
+
+   {{ .Description | trimspace }}
+
+   ## Example Usage
+
+   {{ tffile (printf "examples/resources/%s/main.tf" .Name) }}
+
+   {{ .SchemaMarkdown | trimspace }}
+   ```
+   For data sources, replace `resources` with `data-sources` in the `tffile` path.
+
+3. **Regenerate docs** — Run `cd src && make docs` which outputs to the repo-root `docs/` directory (where the Terraform Registry reads from).
+
+4. **Naming** — Template files use the resource name without the provider prefix (e.g., `folder.md.tmpl` not `tenableio_folder.md.tmpl`). Example directories use the full name (e.g., `tenableio_folder/`).

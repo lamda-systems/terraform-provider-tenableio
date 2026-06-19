@@ -1,0 +1,52 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Generate Docs",
+      "type": "shell",
+      "command": "make docs",
+      "group": "build",
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "detail": "Generate Terraform Registry documentation from schema and examples",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "make build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "Lint",
+      "type": "shell",
+      "command": "make lint",
+      "group": "test",
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "Test",
+      "type": "shell",
+      "command": "make test",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "problemMatcher": ["$go"]
+    }
+  ]
+}
