@@ -12,9 +12,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    if: >-
-      github.event.workflow_run.conclusion == 'success'
-      && !contains(github.event.workflow_run.head_commit.message, '[skip release]')
+    if: github.event.workflow_run.conclusion == 'success'
     defaults:
       run:
         working-directory: src
@@ -23,12 +21,27 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check for skip release
+        id: skip
+        working-directory: .
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Commit message: ${COMMIT_MSG}"
+          if echo "${COMMIT_MSG}" | grep -qiF '[skip release]'; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "Skipping release due to [skip release] in commit message"
+          else
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - uses: actions/setup-go@v6
+        if: steps.skip.outputs.skip == 'false'
         with:
           go-version-file: src/go.mod
           cache-dependency-path: src/go.sum
 
       - name: Determine version bump
+        if: steps.skip.outputs.skip == 'false'
         id: version
         working-directory: .
         run: |
@@ -64,6 +77,7 @@ jobs:
           echo "Bump: ${BUMP} | ${LATEST_TAG} -> ${NEXT_TAG}"
 
       - name: Create tag
+        if: steps.skip.outputs.skip == 'false'
         working-directory: .
         run: |
           git config user.name "github-actions[bot]"
@@ -72,6 +86,7 @@ jobs:
           git push origin "${{ steps.version.outputs.next_tag }}"
 
       - name: Import GPG key
+        if: steps.skip.outputs.skip == 'false'
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -81,6 +96,7 @@ jobs:
           echo "GPG_FINGERPRINT=${GPG_FINGERPRINT}" >> "${GITHUB_ENV}"
 
       - name: Run GoReleaser
+        if: steps.skip.outputs.skip == 'false'
         uses: goreleaser/goreleaser-action@v6
         with:
           version: v2.16.0
