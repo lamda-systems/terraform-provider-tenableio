@@ -5,7 +5,7 @@ VERSION?=0.1.0
 OS_ARCH?=linux_amd64
 INSTALL_DIR=~/.terraform.d/plugins/registry.terraform.io/lamda-systems/tenableio/$(VERSION)/$(OS_ARCH)
 
-.PHONY: build install test testacc lint docs clean release-check setup
+.PHONY: build install test testacc lint security gosec govulncheck docs clean release-check setup
 
 build:
 	go build -o $(BINARY)
@@ -22,6 +22,14 @@ testacc:
 
 lint:
 	golangci-lint run ./...
+
+gosec:
+	gosec ./...
+
+govulncheck:
+	govulncheck ./...
+
+security: gosec govulncheck
 
 docs:
 	tfplugindocs generate --provider-name tenableio --rendered-website-dir ../docs

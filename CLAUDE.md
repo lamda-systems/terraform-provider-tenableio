@@ -4,12 +4,17 @@
 
 Custom Terraform provider for managing Tenable.io (Vulnerability Management) resources via the Tenable API.
 
+## Development Environment
+
+This project uses a **VS Code devcontainer** (Dockerfile-local). All tooling — Go, Terraform, linters, security scanners — is installed inside the container. You are always running inside the devcontainer; there is no need for Docker-in-Docker or sidecar exec.
+
 ## Tech Stack
 
 - **Language**: Go 1.26+
 - **Framework**: Terraform Plugin Framework (hashicorp/terraform-plugin-framework)
 - **Terraform**: 1.14+
 - **Linter**: golangci-lint v2
+- **Security**: gosec, govulncheck
 - **Release**: goreleaser v2
 - **Docs**: tfplugindocs
 
@@ -42,25 +47,40 @@ src/
 
 ```bash
 # Build
-cd src && go build -o terraform-provider-tenableio
+cd src && make build
 
 # Test
-cd src && go test ./...
+cd src && make test
 
 # Acceptance tests (needs real Tenable.io creds)
-cd src && TF_ACC=1 TENABLEIO_ACCESS_KEY=xxx TENABLEIO_SECRET_KEY=xxx go test ./... -v
+cd src && make testacc
 
 # Lint
-cd src && golangci-lint run ./...
+cd src && make lint
+
+# Security (gosec + govulncheck)
+cd src && make security
 
 # Generate docs
 cd src && make docs
 
 # Install locally for dev
-cd src && go build -o terraform-provider-tenableio && \
-  mkdir -p ~/.terraform.d/plugins/registry.terraform.io/lamda-systems/tenableio/0.1.0/linux_amd64 && \
-  mv terraform-provider-tenableio ~/.terraform.d/plugins/registry.terraform.io/lamda-systems/tenableio/0.1.0/linux_amd64/
+cd src && make install
+
+# Run full pre-commit checks (lint + security + tests)
+bash .githooks/pre-commit
 ```
+
+## CI Pipeline
+
+GitHub Actions workflow (`.github/workflows/ci.yml`):
+- **lint** and **security** run in parallel
+- **build** (+ tests) runs only after both pass
+- Security job runs gosec (static analysis) and govulncheck (dependency vulnerabilities)
+
+## Pre-commit Hook
+
+The `.githooks/pre-commit` hook runs lint, gosec, govulncheck, and tests before each commit. Activate with `make setup` (from `src/`), which sets `core.hooksPath` to `.githooks/`. The same checks are available as a VS Code task ("Pre-commit Hook") for manual runs.
 
 ## Environment Variables
 

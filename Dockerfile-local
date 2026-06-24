@@ -1,7 +1,7 @@
 FROM golang:1.26.4-bookworm
 
 ARG TERRAFORM_VERSION=1.14.9
-ARG GOLANGCI_LINT_VERSION=v2.1.6
+ARG GOLANGCI_LINT_VERSION=v2.12.2
 ARG GORELEASER_VERSION=v2.8.2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,6 +27,9 @@ RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/ins
 RUN go install github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}
 
 RUN go install github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@latest
+
+RUN go install github.com/securego/gosec/v2/cmd/gosec@latest
+RUN go install golang.org/x/vuln/cmd/govulncheck@latest
 
 ENV CGO_ENABLED=0
 ENV GOFLAGS="-mod=mod"

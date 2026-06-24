@@ -47,6 +47,44 @@
         "cwd": "${workspaceFolder}/src"
       },
       "problemMatcher": ["$go"]
+    },
+    {
+      "label": "Security: gosec",
+      "type": "shell",
+      "command": "gosec ./...",
+      "group": "test",
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "detail": "Static analysis for security vulnerabilities in Go code",
+      "problemMatcher": []
+    },
+    {
+      "label": "Security: govulncheck",
+      "type": "shell",
+      "command": "govulncheck ./...",
+      "group": "test",
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "detail": "Check Go dependencies for known vulnerabilities",
+      "problemMatcher": []
+    },
+    {
+      "label": "Security: All",
+      "dependsOn": ["Security: gosec", "Security: govulncheck"],
+      "dependsOrder": "parallel",
+      "group": "test",
+      "detail": "Run all security checks (gosec + govulncheck)",
+      "problemMatcher": []
+    },
+    {
+      "label": "Pre-commit Hook",
+      "type": "shell",
+      "command": "bash ${workspaceFolder}/.githooks/pre-commit",
+      "group": "test",
+      "detail": "Run the full pre-commit hook (lint + security + tests)",
+      "problemMatcher": ["$go"]
     }
   ]
 }
