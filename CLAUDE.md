@@ -75,10 +75,10 @@ bash .githooks/pre-commit
 
 GitHub Actions workflow (`.github/workflows/ci.yml`):
 - **lint** and **security** run in parallel
-- **build** (+ tests) runs only after both pass (`needs: [lint, security]`)
-- Security job runs gosec (static analysis) and govulncheck (dependency vulnerabilities)
-- gosec results are uploaded as SARIF to GitHub Code Scanning (Security tab, PR annotations)
-- govulncheck results are uploaded as a JSON workflow artifact
+- **build** (+ tests + coverage) runs only after both pass (`needs: [lint, security]`)
+- Weekly scheduled run (Monday 04:25 UTC) for CodeQL and security checks
+- Security job: CodeQL analysis, gosec (SARIF), govulncheck (JSON artifact)
+- Build job: tests with coverage, Cobertura XML report, PR coverage comment
 - Dependabot is configured for Go module and GitHub Actions updates (`.github/dependabot.yml`)
 
 ## Pre-commit Hook
