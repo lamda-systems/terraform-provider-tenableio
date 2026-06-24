@@ -5,12 +5,17 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '25 4 * * 1'
 
 permissions:
   contents: read
+  security-events: write
+  pull-requests: write
 
 jobs:
   build:
+    needs: [lint, security]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -29,8 +34,35 @@ jobs:
       - name: Build
         run: go build -v ./...
 
-      - name: Test
-        run: go test -v -count=1 ./...
+      - name: Test with coverage
+        run: go test -v -count=1 -coverprofile=coverage.out ./...
+
+      - name: Convert coverage to Cobertura
+        run: |
+          go install github.com/boumenot/gocover-cobertura@latest
+          gocover-cobertura < coverage.out > coverage.xml
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            src/coverage.out
+            src/coverage.xml
+
+      - name: Coverage summary
+        if: github.event_name == 'pull_request'
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: src/coverage.xml
+          format: markdown
+          output: both
+
+      - name: Add coverage PR comment
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: code-coverage-results.md
 
   lint:
     runs-on: ubuntu-latest
@@ -50,3 +82,53 @@ jobs:
         with:
           version: v2.12.2
           working-directory: src
+
+  security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          build-mode: autobuild
+
+      - name: CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-go
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec
+        run: gosec -fmt sarif -out gosec-report.sarif ./...
+
+      - name: Upload gosec SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: src/gosec-report.sarif
+          category: gosec
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck -json ./... | tee govulncheck-report.json
+
+      - name: Upload govulncheck report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: govulncheck-report
+          path: src/govulncheck-report.json

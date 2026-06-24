@@ -8,6 +8,12 @@ cd src
 echo "Running golangci-lint..."
 golangci-lint run ./...
 
+echo "Running gosec..."
+gosec ./...
+
+echo "Running govulncheck..."
+govulncheck ./...
+
 echo "Running tests..."
 go test ./... -count=1
 
