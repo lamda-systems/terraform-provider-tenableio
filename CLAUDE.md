@@ -75,8 +75,11 @@ bash .githooks/pre-commit
 
 GitHub Actions workflow (`.github/workflows/ci.yml`):
 - **lint** and **security** run in parallel
-- **build** (+ tests) runs only after both pass
+- **build** (+ tests) runs only after both pass (`needs: [lint, security]`)
 - Security job runs gosec (static analysis) and govulncheck (dependency vulnerabilities)
+- gosec results are uploaded as SARIF to GitHub Code Scanning (Security tab, PR annotations)
+- govulncheck results are uploaded as a JSON workflow artifact
+- Dependabot is configured for Go module and GitHub Actions updates (`.github/dependabot.yml`)
 
 ## Pre-commit Hook
 
