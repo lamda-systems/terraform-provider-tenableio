@@ -21,9 +21,11 @@ type TenableioProvider struct {
 }
 
 type TenableioProviderModel struct {
-	AccessKey types.String `tfsdk:"access_key"`
-	SecretKey types.String `tfsdk:"secret_key"`
-	BaseURL   types.String `tfsdk:"base_url"`
+	AccessKey       types.String `tfsdk:"access_key"`
+	SecretKey       types.String `tfsdk:"secret_key"`
+	BaseURL         types.String `tfsdk:"base_url"`
+	ProxyAuthHeader types.String `tfsdk:"proxy_auth_header"`
+	ProxyAuthValue  types.String `tfsdk:"proxy_auth_value"`
 }
 
 func New(version string) func() provider.Provider {
@@ -57,6 +59,15 @@ func (p *TenableioProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 				Description: "Tenable.io API base URL. Defaults to https://cloud.tenable.com. Can also be set via TENABLEIO_BASE_URL environment variable.",
 				Optional:    true,
 			},
+			"proxy_auth_header": schema.StringAttribute{
+				Description: "Name of an additional HTTP header to send with every API request, typically used to authenticate against a forward proxy. Can also be set via TENABLEIO_PROXY_AUTH_HEADER environment variable.",
+				Optional:    true,
+			},
+			"proxy_auth_value": schema.StringAttribute{
+				Description: "Value for the proxy_auth_header HTTP header. Can also be set via TENABLEIO_PROXY_AUTH_VALUE environment variable.",
+				Optional:    true,
+				Sensitive:   true,
+			},
 		},
 	}
 }
@@ -83,6 +94,16 @@ func (p *TenableioProvider) Configure(ctx context.Context, req provider.Configur
 		baseURL = config.BaseURL.ValueString()
 	}
 
+	proxyAuthHeader := os.Getenv("TENABLEIO_PROXY_AUTH_HEADER")
+	if !config.ProxyAuthHeader.IsNull() {
+		proxyAuthHeader = config.ProxyAuthHeader.ValueString()
+	}
+
+	proxyAuthValue := os.Getenv("TENABLEIO_PROXY_AUTH_VALUE")
+	if !config.ProxyAuthValue.IsNull() {
+		proxyAuthValue = config.ProxyAuthValue.ValueString()
+	}
+
 	if accessKey == "" {
 		resp.Diagnostics.AddError(
 			"Missing API Access Key",
@@ -103,7 +124,7 @@ func (p *TenableioProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	c := client.New(accessKey, secretKey, baseURL, p.version)
+	c := client.New(accessKey, secretKey, baseURL, proxyAuthHeader, proxyAuthValue, p.version)
 
 	resp.DataSourceData = c
 	resp.ResourceData = c
