@@ -1,4 +1,4 @@
-FROM golang:1.26.4-bookworm
+FROM golang:1.26.5-bookworm
 
 ARG TERRAFORM_VERSION=1.14.9
 ARG GOLANGCI_LINT_VERSION=v2.12.2
@@ -10,8 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
     jq \
-    bash-completion \
-    && rm -rf /var/lib/apt/lists/*
+    bash-completion
 
 RUN curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
     -o /tmp/terraform.zip \
@@ -31,6 +30,8 @@ RUN go install github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@lates
 RUN go install github.com/securego/gosec/v2/cmd/gosec@latest
 RUN go install golang.org/x/vuln/cmd/govulncheck@latest
 
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 ENV CGO_ENABLED=0
 ENV GOFLAGS="-mod=mod"
 
