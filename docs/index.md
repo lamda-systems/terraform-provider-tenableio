@@ -27,6 +27,16 @@ provider "tenableio" {
   # Or set them directly (not recommended for production):
   # access_key = "your-access-key"
   # secret_key = "your-secret-key"
+
+  # Override the API base URL (default: https://cloud.tenable.com).
+  # Also settable via TENABLEIO_BASE_URL.
+  # base_url = "https://cloud.tenable.com"
+
+  # Send an extra HTTP header on every API request, e.g. to authenticate
+  # against a forward proxy. Also settable via TENABLEIO_PROXY_AUTH_HEADER
+  # and TENABLEIO_PROXY_AUTH_VALUE.
+  # proxy_auth_header = "Proxy-Authorization"
+  # proxy_auth_value  = "Bearer your-proxy-token"
 }
 ```
 
@@ -37,4 +47,6 @@ provider "tenableio" {
 
 - `access_key` (String, Sensitive) Tenable.io API access key. Can also be set via TENABLEIO_ACCESS_KEY environment variable.
 - `base_url` (String) Tenable.io API base URL. Defaults to https://cloud.tenable.com. Can also be set via TENABLEIO_BASE_URL environment variable.
+- `proxy_auth_header` (String) Name of an additional HTTP header to send with every API request, typically used to authenticate against a forward proxy. Can also be set via TENABLEIO_PROXY_AUTH_HEADER environment variable.
+- `proxy_auth_value` (String, Sensitive) Value for the proxy_auth_header HTTP header. Can also be set via TENABLEIO_PROXY_AUTH_VALUE environment variable.
 - `secret_key` (String, Sensitive) Tenable.io API secret key. Can also be set via TENABLEIO_SECRET_KEY environment variable.

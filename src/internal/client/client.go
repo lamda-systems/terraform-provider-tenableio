@@ -16,22 +16,26 @@ const (
 )
 
 type Client struct {
-	BaseURL    string
-	AccessKey  string
-	SecretKey  string
-	UserAgent  string
-	HTTPClient *http.Client
+	BaseURL         string
+	AccessKey       string
+	SecretKey       string
+	UserAgent       string
+	ProxyAuthHeader string
+	ProxyAuthValue  string
+	HTTPClient      *http.Client
 }
 
-func New(accessKey, secretKey, baseURL, version string) *Client {
+func New(accessKey, secretKey, baseURL, proxyAuthHeader, proxyAuthValue, version string) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 	return &Client{
-		BaseURL:   baseURL,
-		AccessKey: accessKey,
-		SecretKey: secretKey,
-		UserAgent: fmt.Sprintf(userAgentFmt, version),
+		BaseURL:         baseURL,
+		AccessKey:       accessKey,
+		SecretKey:       secretKey,
+		UserAgent:       fmt.Sprintf(userAgentFmt, version),
+		ProxyAuthHeader: proxyAuthHeader,
+		ProxyAuthValue:  proxyAuthValue,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -56,6 +60,9 @@ func (c *Client) Do(ctx context.Context, method, path string, body any, result a
 	req.Header.Set("X-ApiKeys", fmt.Sprintf("accessKey=%s;secretKey=%s;", c.AccessKey, c.SecretKey))
 	req.Header.Set("User-Agent", c.UserAgent)
 	req.Header.Set("Accept", "application/json")
+	if c.ProxyAuthHeader != "" {
+		req.Header.Set(c.ProxyAuthHeader, c.ProxyAuthValue)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
