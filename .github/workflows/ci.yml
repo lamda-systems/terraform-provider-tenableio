@@ -52,17 +52,39 @@ jobs:
 
       - name: Coverage summary
         if: github.event_name == 'pull_request'
-        uses: irongut/CodeCoverageSummary@v1.3.0
-        with:
-          filename: src/coverage.xml
-          format: markdown
-          output: both
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}')
+          {
+            echo "## Coverage Report"
+            echo ""
+            echo "**Total coverage: ${total}**"
+            echo ""
+            echo "<details><summary>Per-function coverage</summary>"
+            echo ""
+            echo '```'
+            go tool cover -func=coverage.out
+            echo '```'
+            echo ""
+            echo "</details>"
+          } > coverage-summary.md
 
       - name: Add coverage PR comment
         if: github.event_name == 'pull_request'
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: actions/github-script@v7
         with:
-          path: code-coverage-results.md
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- coverage-report -->';
+            const body = marker + '\n' + fs.readFileSync('src/coverage-summary.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
 
   lint:
     runs-on: ubuntu-latest
