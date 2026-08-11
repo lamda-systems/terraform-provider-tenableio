@@ -34,7 +34,7 @@ jobs:
             echo "skip=false" >> "${GITHUB_OUTPUT}"
           fi
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         if: steps.skip.outputs.skip == 'false'
         with:
           go-version-file: src/go.mod
