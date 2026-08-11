@@ -9,6 +9,12 @@ on:
 permissions:
   contents: write
 
+# Serialize releases: never run two at once, and never cancel one mid-flight
+# (tagging + GoReleaser must finish). Overlapping releases queue in order.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest

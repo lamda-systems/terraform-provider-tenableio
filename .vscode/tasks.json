@@ -79,6 +79,28 @@
       "problemMatcher": []
     },
     {
+      "label": "Patch Go Modules",
+      "type": "shell",
+      "command": "go get -u=patch ./... && go mod tidy",
+      "group": "build",
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "detail": "Update all Go module dependencies to their latest patch versions and tidy go.mod/go.sum",
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "Update Go Modules",
+      "type": "shell",
+      "command": "go get -u ./... && go mod tidy",
+      "group": "build",
+      "options": {
+        "cwd": "${workspaceFolder}/src"
+      },
+      "detail": "Update all Go module dependencies to their latest patch versions and tidy go.mod/go.sum",
+      "problemMatcher": ["$go"]
+    },
+    {
       "label": "Pre-commit Hook",
       "type": "shell",
       "command": "bash ${workspaceFolder}/.githooks/pre-commit",
