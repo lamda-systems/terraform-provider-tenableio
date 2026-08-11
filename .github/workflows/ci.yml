@@ -13,6 +13,13 @@ permissions:
   security-events: write
   pull-requests: write
 
+# Only one CI run per branch/PR at a time. Newer pushes to a PR cancel the
+# in-flight run; runs on main queue instead of cancelling so every commit that
+# feeds a release completes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     needs: [lint, security]
