@@ -3,6 +3,10 @@ FROM golang:1.26.5-bookworm
 ARG TERRAFORM_VERSION=1.14.9
 ARG GOLANGCI_LINT_VERSION=v2.12.2
 ARG GORELEASER_VERSION=v2.8.2
+ARG DELVE_VERSION=v1.27.0
+ARG TFPLUGINDOCS_VERSION=v0.25.0
+ARG GOSEC_VERSION=v2.28.0
+ARG GOVULNCHECK_VERSION=v1.6.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -18,21 +22,26 @@ RUN curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/te
     && rm /tmp/terraform.zip \
     && terraform --version
 
-RUN go install github.com/go-delve/delve/cmd/dlv@latest
+RUN go install github.com/go-delve/delve/cmd/dlv@${DELVE_VERSION}
 
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
     | sh -s -- -b /usr/local/bin ${GOLANGCI_LINT_VERSION}
 
 RUN go install github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}
 
-RUN go install github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@latest
+RUN go install github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@${TFPLUGINDOCS_VERSION}
 
-RUN go install github.com/securego/gosec/v2/cmd/gosec@latest
-RUN go install golang.org/x/vuln/cmd/govulncheck@latest
+RUN go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}
+# govulncheck's vulnerability database is fetched at run time, so pinning the
+# binary does not freeze vulnerability coverage.
+RUN go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV CGO_ENABLED=0
-ENV GOFLAGS="-mod=mod"
+# GOFLAGS is deliberately unset so the devcontainer uses Go's default
+# -mod=readonly, matching CI. Do not set -mod=mod: it lets any command that
+# shells out to `go build` (tfplugindocs during `make docs`, for example)
+# silently rewrite go.mod and go.sum. `go get` and `go mod tidy` still work.
 
 CMD ["sleep", "infinity"]
