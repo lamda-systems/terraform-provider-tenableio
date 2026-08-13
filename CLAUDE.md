@@ -26,7 +26,9 @@ Every tool in `Dockerfile-local` is pinned to an explicit version via `ARG` (Ter
 - **Auth**: `X-ApiKeys: accessKey=ACCESS_KEY;secretKey=SECRET_KEY;` header
 - **User-Agent**: `Integration/1.0 (Tenable; TerraformProvider; Build/VERSION)`
 - **Docs**: https://developer.tenable.com
-- **LLM index**: https://developer.tenable.com/llms.txt
+- **LLM index**: https://developer.tenable.com/llms.txt — the root file only lists section indexes; the useful one is https://developer.tenable.com/reference/llms.txt, and any reference page can be fetched as markdown by appending `.md` to its URL.
+
+Do not assume the API round-trips a field in the shape it accepts it. Several endpoints echo back a different structure than they take (see Tags below), so check the response schema of a GET before mapping it to state.
 
 ## Project Structure
 
@@ -128,6 +130,31 @@ Not prefixable:
 - `TF_ACC` — Set to `1` to run acceptance tests
 - `TF_LOG` — Terraform log level (default: INFO in devcontainer)
 
+## Tags and Dynamic Tag Filters
+
+A tag value is **static** (applied to assets manually) or **dynamic** (Tenable.io applies it automatically to every asset matching a set of rules — what the UI presents as filters on asset class, IPv4, operating system, and so on). What makes a tag dynamic is the presence of a `filters` object on `POST /tags/values` or `PUT /tags/values/{uuid}`; the API then reports `type: "dynamic"`.
+
+`tenableio_tag_value` exposes this as a nested `filters.asset.and` / `filters.asset.or` list of `{property, operator, values}` rules. `tenableio_tag_asset_filters` (`GET /tags/assets/filters`) lists every property usable as a rule, its supported operators, and its dropdown options — that endpoint is the source of truth for valid `property`/`operator` values, so point users at it rather than hard-coding a list.
+
+**The request and response shapes differ, and this drives most of the implementation:**
+
+| | Request (POST/PUT) | Response (GET details) |
+|---|---|---|
+| `filters.asset` | JSON object | JSON-formatted **string** |
+| attribute key | `property` | `field` |
+| operator | readable (`equals`) | short code (`eq`, `match`, `wc`) |
+| value | string *or* array of strings | either |
+
+Consequences baked into the code, do not "simplify" them away:
+
+- `client.TagRule` has custom `MarshalJSON`/`UnmarshalJSON` ([tags.go](src/internal/client/tags.go)) — it emits `property` and collapses a single value to a bare string, and it parses both `property` and `field` plus both value forms. `TagValueResponseFilters.ParseAssetRules()` decodes the stringified response.
+- Because the echo cannot be compared verbatim with configuration, `reconcileFilters` in [tag_value.go](src/internal/resources/tag_value.go) keeps the **configured** rules authoritative while the tag stays dynamic. Only coarse drift is detected: a tag turned static out-of-band clears `filters` from state, and a tag with no filters in state (import, or made dynamic out-of-band) adopts the parsed response rules.
+- Removing `filters` from a dynamic tag forces replacement (`filtersRemovalRequiresReplace` plan modifier), because the API does not document whether omitting `filters` on update preserves or clears the rules.
+
+Limits from the API: 40 rules per tag, 1,024 values per rule, 1 MB request body.
+
+**Unverified against a live tenant** (implemented from docs only) — confirm with `TF_ACC=1` before relying on them: static→dynamic conversion via update, the exact response echo format, and clear-on-omit semantics.
+
 ## Conventions
 
 - Provider name: `tenableio`
@@ -138,6 +165,8 @@ Not prefixable:
 - One file per resource/data source
 - Provider settings resolution lives in `internal/provider/config.go`, not in `Configure` — keep `Configure` a thin caller of `resolveSettings` so the resolution logic stays unit-testable without a Terraform run
 - Adding a provider attribute means touching four places: the model struct and schema in `provider.go`, `resolveSettings` in `config.go`, the attribute list in `provider_test.go`, and `examples/provider/main.tf` (then `make docs`)
+- Adding a resource or data source means registering it in `provider.go` **and** adding it to the expected list in `provider_test.go`, which asserts the full inventory
+- JSON quirks (custom `MarshalJSON`/`UnmarshalJSON`, response shapes that differ from request shapes) belong in `internal/client/` behind plain Go types, so resources never deal with raw JSON. Cover each quirk with a table-driven unit test in `internal/client/<name>_test.go` — these run without credentials, unlike acceptance tests
 
 ## Adding New Resources or Data Sources
 

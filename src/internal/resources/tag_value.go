@@ -73,17 +73,23 @@ func (r *TagValueResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				},
 			},
 			"category_uuid": schema.StringAttribute{
-				Description: "The UUID of the tag category. Changing this forces a new resource.",
-				Optional:    true,
-				Computed:    true,
+				Description: "The UUID of the tag category, usually a reference to a tenableio_tag_category resource. " +
+					"Preferred over category_name: the reference orders the two resources correctly and survives category renames. " +
+					"Set either this or category_name. Changing this forces a new resource.",
+				Optional: true,
+				Computed: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplaceIfConfigured(),
 				},
 			},
 			"category_name": schema.StringAttribute{
-				Description: "The name of the tag category. Changing this forces a new resource.",
-				Optional:    true,
-				Computed:    true,
+				Description: "The name of the tag category. Tenable.io creates the category when no category of that name exists, " +
+					"which is convenient for ad-hoc use but risky otherwise: a bare name creates no dependency on a tenableio_tag_category " +
+					"resource (so the category may be created twice), tag values sharing a not-yet-existing name can race each other, and " +
+					"renaming the category in Tenable.io forces every value pinned to it by name to be replaced. Prefer category_uuid. " +
+					"Changing this forces a new resource.",
+				Optional: true,
+				Computed: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplaceIfConfigured(),
 				},
