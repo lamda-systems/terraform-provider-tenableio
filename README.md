@@ -28,6 +28,32 @@ provider "tenableio" {
 }
 ```
 
+### Multiple provider instances
+
+Set `prefix` on an aliased provider to give it its own set of environment
+variables. Each variable falls back independently to its unprefixed
+`TENABLEIO_` equivalent, so an alias can override only what differs:
+
+```terraform
+provider "tenableio" {
+  alias  = "eu"
+  prefix = "TENABLEIO_EU" # TENABLEIO_EU_ACCESS_KEY, TENABLEIO_EU_SECRET_KEY, ...
+
+  base_url = "https://eu.cloud.tenable.com"
+}
+```
+
+Every setting resolves from the provider block first, then the prefixed
+environment variable, then the unprefixed one. See the
+[provider documentation](docs/index.md) for the full list.
+
+### Forward proxy authentication
+
+`proxy_auth_header` / `proxy_auth_value` (or `TENABLEIO_PROXY_AUTH_HEADER` /
+`TENABLEIO_PROXY_AUTH_VALUE`) add an extra HTTP header to every API request,
+for deployments that reach Tenable.io through an authenticating proxy. Both
+must be set together.
+
 ## Development
 
 This project uses a VS Code devcontainer. Open the repo in VS Code and select **Reopen in Container** to get all tooling (Go, Terraform, linters, security scanners) pre-installed.

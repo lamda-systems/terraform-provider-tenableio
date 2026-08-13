@@ -131,5 +131,6 @@ func (p *TenableioProvider) DataSources(_ context.Context) []func() datasource.D
 		datasources.NewAgentGroupsDataSource,
 		datasources.NewTagCategoriesDataSource,
 		datasources.NewTagValuesDataSource,
+		datasources.NewTagAssetFiltersDataSource,
 	}
 }

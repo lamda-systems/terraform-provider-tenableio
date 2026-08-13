@@ -61,6 +61,7 @@ func TestProviderSchema(t *testing.T) {
 		"tenableio_folders", "tenableio_exclusions", "tenableio_networks",
 		"tenableio_scanners", "tenableio_agent_groups",
 		"tenableio_tag_categories", "tenableio_tag_values",
+		"tenableio_tag_asset_filters",
 	}
 	for _, name := range expectedDataSources {
 		if _, ok := resp.DataSourceSchemas[name]; !ok {

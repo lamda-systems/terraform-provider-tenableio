@@ -8,6 +8,8 @@ Custom Terraform provider for managing Tenable.io (Vulnerability Management) res
 
 This project uses a **VS Code devcontainer** (Dockerfile-local). All tooling — Go, Terraform, linters, security scanners — is installed inside the container. You are always running inside the devcontainer; there is no need for Docker-in-Docker or sidecar exec.
 
+Every tool in `Dockerfile-local` is pinned to an explicit version via `ARG` (Terraform, golangci-lint, goreleaser, delve, tfplugindocs, gosec, govulncheck) — do not reintroduce `@latest`. `GOFLAGS` is deliberately left unset so the container uses Go's default `-mod=readonly`, matching CI: with `-mod=mod`, anything that shells out to `go build` (notably `tfplugindocs` during `make docs`) can silently rewrite `go.mod`/`go.sum`. `go get` and `go mod tidy` still work when you actually intend a dependency change.
+
 ## Tech Stack
 
 - **Language**: Go 1.26+
@@ -35,7 +37,8 @@ src/
 ├── GNUmakefile
 ├── .goreleaser.yml
 ├── internal/
-│   ├── provider/                # Provider config and registration
+│   ├── provider/                # Provider registration (provider.go) and
+│   │                            # settings resolution (config.go)
 │   ├── client/                  # Tenable API HTTP client
 │   ├── resources/               # Terraform resources (CRUD)
 │   └── datasources/             # Terraform data sources (read-only)
@@ -85,11 +88,43 @@ GitHub Actions workflow (`.github/workflows/ci.yml`):
 
 The `.githooks/pre-commit` hook runs lint, gosec, govulncheck, and tests before each commit. Activate with `make setup` (from `src/`), which sets `core.hooksPath` to `.githooks/`. The same checks are available as a VS Code task ("Pre-commit Hook") for manual runs.
 
+## Provider Configuration
+
+Every provider setting resolves from three sources, in order (see `resolveSettings` in `src/internal/provider/config.go`):
+
+1. The attribute in the `provider` block
+2. The **prefixed** environment variable, when the `prefix` attribute is set
+3. The unprefixed `TENABLEIO_*` environment variable
+
+Fallback is **per variable, not per group**: an aliased provider can set only `TENABLEIO_EU_PROXY_AUTH_VALUE` and still inherit the shared `TENABLEIO_ACCESS_KEY`/`TENABLEIO_SECRET_KEY`. This is what makes multiple provider instances (one per region, per proxy, per tenant) workable:
+
+```terraform
+provider "tenableio" {
+  alias  = "eu"
+  prefix = "TENABLEIO_EU"   # reads TENABLEIO_EU_ACCESS_KEY, TENABLEIO_EU_SECRET_KEY, ...
+}
+```
+
+Rules enforced in `config.go`:
+
+- A prefix is trimmed of trailing `_` and must match `^[A-Za-z_][A-Za-z0-9_]*$`, so it can only produce valid env var names.
+- An environment variable that is set but **empty** counts as unset and falls through to the next source.
+- `proxy_auth_header` and `proxy_auth_value` are validated **together on the resolved values** (not on the config), since each half can arrive from a different source. Exactly one of the two set is an error; neither set is fine (no header is sent).
+- Any provider attribute that is unknown at plan time is a hard error — provider config must be resolvable during plan.
+- Diagnostics name the variable *that instance actually reads* (`TENABLEIO_EU_ACCESS_KEY`, not `TENABLEIO_ACCESS_KEY`).
+
 ## Environment Variables
+
+Each of these also has a prefixed form (`<PREFIX>_ACCESS_KEY` etc.) when `prefix` is set on the provider block:
 
 - `TENABLEIO_ACCESS_KEY` — Tenable.io API access key
 - `TENABLEIO_SECRET_KEY` — Tenable.io API secret key
 - `TENABLEIO_BASE_URL` — Override base URL (default: `https://cloud.tenable.com`)
+- `TENABLEIO_PROXY_AUTH_HEADER` — Name of an extra HTTP header sent on every API request (e.g. `Proxy-Authorization`)
+- `TENABLEIO_PROXY_AUTH_VALUE` — Value for that header
+
+Not prefixable:
+
 - `TF_ACC` — Set to `1` to run acceptance tests
 - `TF_LOG` — Terraform log level (default: INFO in devcontainer)
 
@@ -101,6 +136,8 @@ The `.githooks/pre-commit` hook runs lint, gosec, govulncheck, and tests before 
 - Use Terraform Plugin Framework (not SDKv2)
 - All API calls go through the centralized client in `internal/client/`
 - One file per resource/data source
+- Provider settings resolution lives in `internal/provider/config.go`, not in `Configure` — keep `Configure` a thin caller of `resolveSettings` so the resolution logic stays unit-testable without a Terraform run
+- Adding a provider attribute means touching four places: the model struct and schema in `provider.go`, `resolveSettings` in `config.go`, the attribute list in `provider_test.go`, and `examples/provider/main.tf` (then `make docs`)
 
 ## Adding New Resources or Data Sources
 
