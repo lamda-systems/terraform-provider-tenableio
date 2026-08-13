@@ -31,7 +31,7 @@ func TestProviderSchema(t *testing.T) {
 
 	providerAttrs := map[string]bool{
 		"access_key": false, "secret_key": false, "base_url": false,
-		"proxy_auth_header": false, "proxy_auth_value": false,
+		"proxy_auth_header": false, "proxy_auth_value": false, "prefix": false,
 	}
 	for _, attr := range resp.Provider.Block.Attributes {
 		if _, ok := providerAttrs[attr.Name]; ok {
@@ -61,6 +61,7 @@ func TestProviderSchema(t *testing.T) {
 		"tenableio_folders", "tenableio_exclusions", "tenableio_networks",
 		"tenableio_scanners", "tenableio_agent_groups",
 		"tenableio_tag_categories", "tenableio_tag_values",
+		"tenableio_tag_asset_filters",
 	}
 	for _, name := range expectedDataSources {
 		if _, ok := resp.DataSourceSchemas[name]; !ok {
