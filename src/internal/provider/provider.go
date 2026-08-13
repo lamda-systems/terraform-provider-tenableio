@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -26,6 +25,7 @@ type TenableioProviderModel struct {
 	BaseURL         types.String `tfsdk:"base_url"`
 	ProxyAuthHeader types.String `tfsdk:"proxy_auth_header"`
 	ProxyAuthValue  types.String `tfsdk:"proxy_auth_value"`
+	Prefix          types.String `tfsdk:"prefix"`
 }
 
 func New(version string) func() provider.Provider {
@@ -68,6 +68,13 @@ func (p *TenableioProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 				Optional:    true,
 				Sensitive:   true,
 			},
+			"prefix": schema.StringAttribute{
+				Description: "Prefix for the environment variables this provider instance reads, so each aliased provider can use its own credentials and proxy token. " +
+					"Setting it to `TENABLEIO_EU`, for example, reads TENABLEIO_EU_ACCESS_KEY, TENABLEIO_EU_SECRET_KEY, TENABLEIO_EU_BASE_URL, " +
+					"TENABLEIO_EU_PROXY_AUTH_HEADER and TENABLEIO_EU_PROXY_AUTH_VALUE. " +
+					"Each variable falls back independently to its unprefixed TENABLEIO_ equivalent when unset, and attributes set in the provider block always win.",
+				Optional: true,
+			},
 		},
 	}
 }
@@ -79,52 +86,20 @@ func (p *TenableioProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	accessKey := os.Getenv("TENABLEIO_ACCESS_KEY")
-	if !config.AccessKey.IsNull() {
-		accessKey = config.AccessKey.ValueString()
-	}
-
-	secretKey := os.Getenv("TENABLEIO_SECRET_KEY")
-	if !config.SecretKey.IsNull() {
-		secretKey = config.SecretKey.ValueString()
-	}
-
-	baseURL := os.Getenv("TENABLEIO_BASE_URL")
-	if !config.BaseURL.IsNull() {
-		baseURL = config.BaseURL.ValueString()
-	}
-
-	proxyAuthHeader := os.Getenv("TENABLEIO_PROXY_AUTH_HEADER")
-	if !config.ProxyAuthHeader.IsNull() {
-		proxyAuthHeader = config.ProxyAuthHeader.ValueString()
-	}
-
-	proxyAuthValue := os.Getenv("TENABLEIO_PROXY_AUTH_VALUE")
-	if !config.ProxyAuthValue.IsNull() {
-		proxyAuthValue = config.ProxyAuthValue.ValueString()
-	}
-
-	if accessKey == "" {
-		resp.Diagnostics.AddError(
-			"Missing API Access Key",
-			"The provider cannot create the Tenable.io API client because the access key is missing. "+
-				"Set the access_key attribute in the provider configuration or the TENABLEIO_ACCESS_KEY environment variable.",
-		)
-	}
-
-	if secretKey == "" {
-		resp.Diagnostics.AddError(
-			"Missing API Secret Key",
-			"The provider cannot create the Tenable.io API client because the secret key is missing. "+
-				"Set the secret_key attribute in the provider configuration or the TENABLEIO_SECRET_KEY environment variable.",
-		)
-	}
-
+	settings, diags := resolveSettings(config)
+	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	c := client.New(accessKey, secretKey, baseURL, proxyAuthHeader, proxyAuthValue, p.version)
+	c := client.New(
+		settings.accessKey,
+		settings.secretKey,
+		settings.baseURL,
+		settings.proxyAuthHeader,
+		settings.proxyAuthValue,
+		p.version,
+	)
 
 	resp.DataSourceData = c
 	resp.ResourceData = c

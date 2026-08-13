@@ -31,7 +31,7 @@ func TestProviderSchema(t *testing.T) {
 
 	providerAttrs := map[string]bool{
 		"access_key": false, "secret_key": false, "base_url": false,
-		"proxy_auth_header": false, "proxy_auth_value": false,
+		"proxy_auth_header": false, "proxy_auth_value": false, "prefix": false,
 	}
 	for _, attr := range resp.Provider.Block.Attributes {
 		if _, ok := providerAttrs[attr.Name]; ok {
