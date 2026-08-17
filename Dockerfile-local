@@ -1,4 +1,4 @@
-FROM golang:1.26.5-bookworm
+FROM golang:1.26.6-bookworm
 
 ARG TERRAFORM_VERSION=1.14.9
 ARG GOLANGCI_LINT_VERSION=v2.12.2
@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
     jq \
-    bash-completion
+    bash-completion \
+    locales
 
 RUN curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
     -o /tmp/terraform.zip \
@@ -36,8 +37,11 @@ RUN go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}
 # binary does not freeze vulnerability coverage.
 RUN go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
 
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
+RUN echo en_US.UTF-8 UTF-8 >>/etc/locale.gen && locale-gen
+
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
 ENV CGO_ENABLED=0
 # GOFLAGS is deliberately unset so the devcontainer uses Go's default
 # -mod=readonly, matching CI. Do not set -mod=mod: it lets any command that

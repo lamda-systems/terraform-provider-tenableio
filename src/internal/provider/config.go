@@ -116,7 +116,8 @@ func resolveSettings(config TenableioProviderModel) (providerSettings, diag.Diag
 			"Missing Proxy Auth Header",
 			"The provider was given a proxy auth value but no header name to send it under, so it would be silently dropped. "+
 				"Set the proxy_auth_header attribute in the provider configuration or the "+
-				envVarName(prefix, envProxyAuthHeader)+" environment variable.",
+				envVarName(prefix, envProxyAuthHeader)+" environment variable."+
+				aliasHint(envProxyAuthHeader),
 		)
 	}
 
@@ -126,7 +127,8 @@ func resolveSettings(config TenableioProviderModel) (providerSettings, diag.Diag
 			fmt.Sprintf("The provider was asked to send the %q header but no value for it, so the header would be sent empty. ",
 				settings.proxyAuthHeader)+
 				"Set the proxy_auth_value attribute in the provider configuration or the "+
-				envVarName(prefix, envProxyAuthValue)+" environment variable.",
+				envVarName(prefix, envProxyAuthValue)+" environment variable."+
+				aliasHint(envProxyAuthValue),
 		)
 	}
 
@@ -150,6 +152,17 @@ func resolve(attr types.String, prefix, suffix string) string {
 		}
 	}
 	return os.Getenv(envPrefix + "_" + suffix)
+}
+
+// aliasHint explains the most common cause of a half-configured proxy: each
+// provider block is configured independently, so an attribute set on the
+// default provider is invisible to an aliased one, while an environment
+// variable is shared by every instance. Diagnostics do not know whether this
+// instance is aliased, so the hint is phrased as guidance rather than a claim.
+func aliasHint(suffix string) string {
+	return " If the other half is set on a different provider block, note that provider blocks do not share attributes: " +
+		"aliased providers inherit no attributes from the default provider block. Set " + envPrefix + "_" + suffix +
+		" in the environment to share it across every provider instance, or repeat the attribute in each block."
 }
 
 // envVarName returns the variable name to name in a diagnostic, preferring the
