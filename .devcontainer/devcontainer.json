@@ -12,7 +12,8 @@
         "golang.go",
         "hashicorp.terraform",
         "hashicorp.hcl",
-        "redhat.vscode-yaml"
+        "redhat.vscode-yaml",
+        "anthropic.claude-code"
       ],
       "settings": {
         "go.toolsManagement.autoUpdate": true,

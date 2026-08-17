@@ -85,6 +85,20 @@ environment variable, then the unprefixed one. See the
 for deployments that reach Tenable.io through an authenticating proxy. Both
 must be set together.
 
+Aliased providers inherit this pair like any other setting: an instance that
+declares no proxy variables of its own falls back to the shared
+`TENABLEIO_PROXY_AUTH_HEADER` / `TENABLEIO_PROXY_AUTH_VALUE`, and it can
+override just one of them. To opt a single instance out of an inherited proxy,
+set both attributes to `""` in its provider block.
+
+> **Set shared proxy config in the environment, not in a provider block.**
+> Terraform configures each `provider` block independently, so attributes on
+> the default provider are invisible to aliased ones. Putting the header name
+> in the default block while the token comes from
+> `TENABLEIO_PROXY_AUTH_VALUE` makes every alias resolve a value with no
+> header, failing with `Missing Proxy Auth Header`. Either export both
+> variables, or repeat `proxy_auth_header` in each aliased block.
+
 ### Dynamic tags
 
 Give a `tenableio_tag_value` a set of `filters` and Tenable.io applies the tag
