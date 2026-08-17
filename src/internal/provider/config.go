@@ -161,7 +161,7 @@ func resolve(attr types.String, prefix, suffix string) string {
 // instance is aliased, so the hint is phrased as guidance rather than a claim.
 func aliasHint(suffix string) string {
 	return " If the other half is set on a different provider block, note that provider blocks do not share attributes: " +
-		"aliased providers inherit nothing from the default one. Set " + envPrefix + "_" + suffix +
+		"aliased providers inherit no attributes from the default provider block. Set " + envPrefix + "_" + suffix +
 		" in the environment to share it across every provider instance, or repeat the attribute in each block."
 }
 
