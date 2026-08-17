@@ -70,6 +70,41 @@ func TestResolveSettingsSources(t *testing.T) {
 			},
 		},
 		{
+			name: "prefixed provider with no proxy variables of its own inherits the shared pair",
+			env: map[string]string{
+				"TENABLEIO_ACCESS_KEY":        "shared-access",
+				"TENABLEIO_SECRET_KEY":        "shared-secret",
+				"TENABLEIO_PROXY_AUTH_HEADER": "Proxy-Authorization",
+				"TENABLEIO_PROXY_AUTH_VALUE":  "shared-token",
+				"TENABLEIO_EU_ACCESS_KEY":     "eu-access",
+				"TENABLEIO_EU_SECRET_KEY":     "eu-secret",
+			},
+			config: TenableioProviderModel{Prefix: types.StringValue("TENABLEIO_EU")},
+			want: providerSettings{
+				accessKey:       "eu-access",
+				secretKey:       "eu-secret",
+				proxyAuthHeader: "Proxy-Authorization",
+				proxyAuthValue:  "shared-token",
+			},
+		},
+		{
+			name: "prefixed provider overriding only the proxy value keeps the shared header",
+			env: map[string]string{
+				"TENABLEIO_ACCESS_KEY":          "shared-access",
+				"TENABLEIO_SECRET_KEY":          "shared-secret",
+				"TENABLEIO_PROXY_AUTH_HEADER":   "Proxy-Authorization",
+				"TENABLEIO_PROXY_AUTH_VALUE":    "shared-token",
+				"TENABLEIO_EU_PROXY_AUTH_VALUE": "eu-token",
+			},
+			config: TenableioProviderModel{Prefix: types.StringValue("TENABLEIO_EU")},
+			want: providerSettings{
+				accessKey:       "shared-access",
+				secretKey:       "shared-secret",
+				proxyAuthHeader: "Proxy-Authorization",
+				proxyAuthValue:  "eu-token",
+			},
+		},
+		{
 			name: "attribute beats both prefixed and unprefixed",
 			env: map[string]string{
 				"TENABLEIO_ACCESS_KEY":    "shared-access",
@@ -234,6 +269,79 @@ func TestResolveSettingsErrorNamesPrefixedVariable(t *testing.T) {
 		}
 	}
 	t.Errorf("expected a Missing API Access Key diagnostic, got %v", diags.Errors())
+}
+
+// An aliased provider that must not use the inherited proxy opts out by
+// setting both attributes to the empty string; a configured attribute always
+// wins over the environment, including when it is empty.
+func TestResolveSettingsProxyOptOut(t *testing.T) {
+	clearEnv(t)
+	baseEnv(t)
+	t.Setenv(envPrefix+"_"+envProxyAuthHeader, "Proxy-Authorization")
+	t.Setenv(envPrefix+"_"+envProxyAuthValue, "shared-token")
+
+	got, diags := resolveSettings(TenableioProviderModel{
+		Prefix:          types.StringValue("TENABLEIO_EU"),
+		ProxyAuthHeader: types.StringValue(""),
+		ProxyAuthValue:  types.StringValue(""),
+	})
+	if diags.HasError() {
+		t.Fatalf("unexpected diagnostics: %v", diags.Errors())
+	}
+	if got.proxyAuthHeader != "" || got.proxyAuthValue != "" {
+		t.Errorf("expected the inherited proxy to be opted out, got header=%q value=%q",
+			got.proxyAuthHeader, got.proxyAuthValue)
+	}
+}
+
+// Opting out of only one half of the pair is rejected: the other half is still
+// inherited, which would send the shared token under an empty header name.
+func TestResolveSettingsPartialProxyOptOutIsRejected(t *testing.T) {
+	clearEnv(t)
+	baseEnv(t)
+	t.Setenv(envPrefix+"_"+envProxyAuthHeader, "Proxy-Authorization")
+	t.Setenv(envPrefix+"_"+envProxyAuthValue, "shared-token")
+
+	_, diags := resolveSettings(TenableioProviderModel{
+		Prefix:          types.StringValue("TENABLEIO_EU"),
+		ProxyAuthHeader: types.StringValue(""),
+	})
+	if !diags.HasError() {
+		t.Fatal("expected an error diagnostic, got none")
+	}
+	for _, d := range diags.Errors() {
+		if d.Summary() == "Missing Proxy Auth Header" {
+			return
+		}
+	}
+	t.Errorf("expected a Missing Proxy Auth Header diagnostic, got %v", diags.Errors())
+}
+
+// Terraform gives each provider block its own configuration: attributes set on
+// the default provider are invisible to an aliased one. Setting the header in
+// HCL while the value comes from the environment therefore breaks every alias
+// that does not repeat the header, because the alias inherits only the value.
+func TestResolveSettingsAliasDoesNotInheritHCLProxyHeader(t *testing.T) {
+	clearEnv(t)
+	baseEnv(t)
+	// The shared token lives in the environment; the header name does not,
+	// because it was written into the default provider block instead.
+	t.Setenv(envPrefix+"_"+envProxyAuthValue, "shared-token")
+
+	// The aliased provider varies only by base_url, exactly as an operator
+	// would write it.
+	_, diags := resolveSettings(TenableioProviderModel{
+		BaseURL: types.StringValue("https://eu.cloud.tenable.com"),
+	})
+	if !diags.HasError() {
+		t.Fatal("expected an error diagnostic, got none")
+	}
+	for _, d := range diags.Errors() {
+		if d.Summary() == "Missing Proxy Auth Header" {
+			return
+		}
+	}
+	t.Errorf("expected a Missing Proxy Auth Header diagnostic, got %v", diags.Errors())
 }
 
 // Neither proxy setting configured is valid: the header is simply not sent.
