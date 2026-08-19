@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
@@ -57,6 +58,7 @@ func (r *AgentGroupResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+				Validators: []validator.String{NoSurroundingWhitespace()},
 			},
 			"owner_id": schema.Int64Attribute{
 				Description: "The ID of the agent group owner.",
@@ -104,8 +106,9 @@ func (r *AgentGroupResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	r.mapToState(result, &plan)
+	r.applyComputed(result, &plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_agent_group", "name", plan.Name.ValueString(), result.Name)
 }
 
 func (r *AgentGroupResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -170,6 +173,28 @@ func (r *AgentGroupResource) ImportState(ctx context.Context, req resource.Impor
 func (r *AgentGroupResource) mapToState(ag *client.AgentGroup, state *AgentGroupResourceModel) {
 	state.ID = types.Int64Value(int64(ag.ID))
 	state.Name = types.StringValue(ag.Name)
+	state.OwnerID = types.Int64Value(int64(ag.OwnerID))
+	state.Owner = types.StringValue(ag.Owner)
+	state.Shared = types.Int64Value(int64(ag.Shared))
+	state.AgentsCount = types.Int64Value(int64(ag.AgentsCount))
+}
+
+// applyComputed copies back only the attributes Terraform could not know at
+// plan time. Attributes that came from configuration are deliberately left as
+// planned.
+//
+// Terraform requires the value applied to equal the value planned for every
+// attribute that was known during planning. Writing the API's echo over a known
+// plan value therefore turns any server-side normalisation -- trimming, case
+// folding, a silently substituted default -- into an unrecoverable "Provider
+// produced inconsistent result after apply". Divergence is not swallowed: the
+// next Read maps the whole object and surfaces it as an ordinary diff the user
+// can act on.
+//
+// Read and ImportState use mapToState instead, which maps everything, because
+// there the API is the source of truth.
+func (r *AgentGroupResource) applyComputed(ag *client.AgentGroup, state *AgentGroupResourceModel) {
+	state.ID = types.Int64Value(int64(ag.ID))
 	state.OwnerID = types.Int64Value(int64(ag.OwnerID))
 	state.Owner = types.StringValue(ag.Owner)
 	state.Shared = types.Int64Value(int64(ag.Shared))

@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
@@ -57,12 +58,14 @@ func (r *NetworkResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"name": schema.StringAttribute{
 				Description: "The name of the network.",
 				Required:    true,
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"description": schema.StringAttribute{
 				Description: "The description of the network.",
 				Optional:    true,
 				Computed:    true,
 				Default:     stringdefault.StaticString(""),
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"assets_ttl_days": schema.Int64Attribute{
 				Description: "The number of days to keep assets (14-365).",
@@ -126,8 +129,10 @@ func (r *NetworkResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	r.mapNetworkToState(result, &plan)
+	r.applyComputed(result, &plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_network", "name", plan.Name.ValueString(), result.Name)
+	requireEcho(&resp.Diagnostics, "tenableio_network", "description", plan.Description.ValueString(), result.Description)
 }
 
 func (r *NetworkResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -176,8 +181,10 @@ func (r *NetworkResource) Update(ctx context.Context, req resource.UpdateRequest
 		return
 	}
 
-	r.mapNetworkToState(result, &plan)
+	r.applyComputed(result, &plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_network", "name", plan.Name.ValueString(), result.Name)
+	requireEcho(&resp.Diagnostics, "tenableio_network", "description", plan.Description.ValueString(), result.Description)
 }
 
 func (r *NetworkResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -210,6 +217,29 @@ func (r *NetworkResource) mapNetworkToState(n *client.Network, state *NetworkRes
 	state.Name = types.StringValue(n.Name)
 	state.Description = types.StringValue(n.Description)
 	state.AssetsTTLDays = types.Int64Value(int64(n.AssetsTTLDays))
+	state.IsDefault = types.BoolValue(n.IsDefault)
+	state.CreatedBy = types.StringValue(n.CreatedBy)
+	state.CreatedInSeconds = types.Int64Value(int64(n.CreatedInSeconds))
+	state.ModifiedInSeconds = types.Int64Value(int64(n.ModifiedInSeconds))
+	state.ScannerCount = types.Int64Value(int64(n.ScannerCount))
+}
+
+// applyComputed copies back only the attributes Terraform could not know at
+// plan time. Attributes that came from configuration are deliberately left as
+// planned.
+//
+// Terraform requires the value applied to equal the value planned for every
+// attribute that was known during planning. Writing the API's echo over a known
+// plan value therefore turns any server-side normalisation -- trimming, case
+// folding, a silently substituted default -- into an unrecoverable "Provider
+// produced inconsistent result after apply". Divergence is not swallowed: the
+// next Read maps the whole object and surfaces it as an ordinary diff the user
+// can act on.
+//
+// Read and ImportState use mapNetworkToState instead, which maps everything, because
+// there the API is the source of truth.
+func (r *NetworkResource) applyComputed(n *client.Network, state *NetworkResourceModel) {
+	state.UUID = types.StringValue(n.UUID)
 	state.IsDefault = types.BoolValue(n.IsDefault)
 	state.CreatedBy = types.StringValue(n.CreatedBy)
 	state.CreatedInSeconds = types.Int64Value(int64(n.CreatedInSeconds))
