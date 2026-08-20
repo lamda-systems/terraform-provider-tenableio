@@ -53,6 +53,9 @@ func TestNoSurroundingWhitespaceSuggestsTheFix(t *testing.T) {
 		validator.StringRequest{Path: path.Root("name"), ConfigValue: types.StringValue(" prod ")},
 		resp,
 	)
+	if !resp.Diagnostics.HasError() {
+		t.Fatalf("expected a validation error, got: %v", resp.Diagnostics)
+	}
 	detail := resp.Diagnostics.Errors()[0].Detail()
 	if !contains(detail, `"prod"`) {
 		t.Errorf("the message should suggest the trimmed value, got: %s", detail)
