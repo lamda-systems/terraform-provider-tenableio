@@ -1,0 +1,4 @@
+# Runtime dependencies, pinned to exact versions to match the project's
+# convention of no floating tool versions anywhere in the toolchain.
+fastapi==0.121.2
+uvicorn[standard]==0.34.3

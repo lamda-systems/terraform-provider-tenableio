@@ -24,7 +24,8 @@ resource "tenableio_exclusion" "weekly_maintenance" {
   description = "Exclude production load balancers during maintenance"
   members     = "10.0.0.0/24"
 
-  schedule {
+  # schedule is a nested attribute, not a block: it takes an equals sign.
+  schedule = {
     enabled   = true
     starttime = "2026-01-01 02:00:00"
     endtime   = "2026-01-01 06:00:00"

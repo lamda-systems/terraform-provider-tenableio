@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -119,8 +120,15 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("tenable API error (status %d): %s", e.StatusCode, e.Body)
 }
 
+// IsNotFound reports whether err was caused by a 404 from the API.
+//
+// errors.As, not a type assertion: every method on Client wraps its error with
+// fmt.Errorf("...: %w", err), so callers never receive a bare *APIError. A
+// direct assertion silently returns false for every real error, which leaves
+// resources unable to detect out-of-band deletion.
 func IsNotFound(err error) bool {
-	if apiErr, ok := err.(*APIError); ok {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == http.StatusNotFound
 	}
 	return false

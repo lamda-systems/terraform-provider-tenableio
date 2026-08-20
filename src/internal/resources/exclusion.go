@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
@@ -64,16 +65,19 @@ func (r *ExclusionResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"name": schema.StringAttribute{
 				Description: "The name of the exclusion.",
 				Required:    true,
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"description": schema.StringAttribute{
 				Description: "The description of the exclusion.",
 				Optional:    true,
 				Computed:    true,
 				Default:     stringdefault.StaticString(""),
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"members": schema.StringAttribute{
 				Description: "Comma-separated list of targets to exclude (IPs, hostnames, CIDR ranges).",
 				Required:    true,
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"network_id": schema.StringAttribute{
 				Description: "The UUID of the network the exclusion applies to.",
@@ -176,6 +180,9 @@ func (r *ExclusionResource) Create(ctx context.Context, req resource.CreateReque
 	plan.LastModificationDate = types.Int64Value(int64(result.LastModificationDate))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_exclusion", "name", plan.Name.ValueString(), result.Name)
+	requireEcho(&resp.Diagnostics, "tenableio_exclusion", "description", plan.Description.ValueString(), result.Description)
+	requireEcho(&resp.Diagnostics, "tenableio_exclusion", "members", plan.Members.ValueString(), result.Members)
 }
 
 func (r *ExclusionResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -277,6 +284,9 @@ func (r *ExclusionResource) Update(ctx context.Context, req resource.UpdateReque
 	plan.LastModificationDate = types.Int64Value(int64(result.LastModificationDate))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_exclusion", "name", plan.Name.ValueString(), result.Name)
+	requireEcho(&resp.Diagnostics, "tenableio_exclusion", "description", plan.Description.ValueString(), result.Description)
+	requireEcho(&resp.Diagnostics, "tenableio_exclusion", "members", plan.Members.ValueString(), result.Members)
 }
 
 func (r *ExclusionResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

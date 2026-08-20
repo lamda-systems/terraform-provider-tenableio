@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
@@ -25,27 +27,27 @@ type ScanResource struct {
 }
 
 type ScanResourceModel struct {
-	ID              types.Int64  `tfsdk:"id"`
-	UUID            types.String `tfsdk:"uuid"`
-	TemplateUUID    types.String `tfsdk:"template_uuid"`
-	Name            types.String `tfsdk:"name"`
-	Description     types.String `tfsdk:"description"`
-	PolicyID        types.Int64  `tfsdk:"policy_id"`
-	FolderID        types.Int64  `tfsdk:"folder_id"`
-	ScannerID       types.Int64  `tfsdk:"scanner_id"`
-	TextTargets     types.String `tfsdk:"text_targets"`
-	TagTargets      types.List   `tfsdk:"tag_targets"`
-	FileTargets     types.String `tfsdk:"file_targets"`
-	Launch          types.String `tfsdk:"launch"`
-	Enabled         types.Bool   `tfsdk:"enabled"`
-	Starttime       types.String `tfsdk:"starttime"`
-	RRules          types.String `tfsdk:"rrules"`
-	Timezone        types.String `tfsdk:"timezone"`
-	Emails          types.String `tfsdk:"emails"`
-	ScanTimeWindow  types.Int64  `tfsdk:"scan_time_window"`
-	Status          types.String `tfsdk:"status"`
-	CreationDate    types.Int64  `tfsdk:"creation_date"`
-	LastModifiedDate types.Int64 `tfsdk:"last_modification_date"`
+	ID               types.Int64  `tfsdk:"id"`
+	UUID             types.String `tfsdk:"uuid"`
+	TemplateUUID     types.String `tfsdk:"template_uuid"`
+	Name             types.String `tfsdk:"name"`
+	Description      types.String `tfsdk:"description"`
+	PolicyID         types.Int64  `tfsdk:"policy_id"`
+	FolderID         types.Int64  `tfsdk:"folder_id"`
+	ScannerID        types.Int64  `tfsdk:"scanner_id"`
+	TextTargets      types.String `tfsdk:"text_targets"`
+	TagTargets       types.List   `tfsdk:"tag_targets"`
+	FileTargets      types.String `tfsdk:"file_targets"`
+	Launch           types.String `tfsdk:"launch"`
+	Enabled          types.Bool   `tfsdk:"enabled"`
+	Starttime        types.String `tfsdk:"starttime"`
+	RRules           types.String `tfsdk:"rrules"`
+	Timezone         types.String `tfsdk:"timezone"`
+	Emails           types.String `tfsdk:"emails"`
+	ScanTimeWindow   types.Int64  `tfsdk:"scan_time_window"`
+	Status           types.String `tfsdk:"status"`
+	CreationDate     types.Int64  `tfsdk:"creation_date"`
+	LastModifiedDate types.Int64  `tfsdk:"last_modification_date"`
 }
 
 func NewScanResource() resource.Resource {
@@ -78,12 +80,14 @@ func (r *ScanResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"name": schema.StringAttribute{
 				Description: "The name of the scan.",
 				Required:    true,
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"description": schema.StringAttribute{
 				Description: "The description of the scan.",
 				Optional:    true,
 				Computed:    true,
 				Default:     stringdefault.StaticString(""),
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"policy_id": schema.Int64Attribute{
 				Description: "The ID of the policy to use for the scan.",
@@ -111,8 +115,19 @@ func (r *ScanResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				Optional:    true,
 			},
 			"launch": schema.StringAttribute{
-				Description: "Launch schedule type: ON_DEMAND, DAILY, WEEKLY, MONTHLY, YEARLY.",
-				Optional:    true,
+				Description: "Launch schedule type: ON_DEMAND, DAILY, WEEKLY, MONTHLY, YEARLY. " +
+					"Defaults to whatever Tenable.io assigns when omitted.",
+				Optional: true,
+				// Computed as well as Optional because Tenable.io fills this in
+				// when the request omits it. Without Computed, the value the API
+				// chose would sit in state against a null in configuration and
+				// produce a diff on every plan, forever. No Default is declared
+				// here on purpose: that would assert which value Tenable.io picks
+				// rather than accepting the one it reports.
+				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"enabled": schema.BoolAttribute{
 				Description: "Whether the scan schedule is enabled.",
@@ -242,7 +257,18 @@ func (r *ScanResource) Create(ctx context.Context, req resource.CreateRequest, r
 	plan.CreationDate = types.Int64Value(int64(result.Scan.CreationDate))
 	plan.LastModifiedDate = types.Int64Value(int64(result.Scan.LastModificationDate))
 
+	// launch is Optional+Computed with no default, so it is unknown whenever the
+	// configuration leaves it out. Settle it from the response; a configured
+	// value is already known and must be left exactly as planned.
+	if plan.Launch.IsUnknown() {
+		plan.Launch = types.StringValue(result.Scan.Launch)
+	}
+
+	echoedName, echoedDescription := result.Scan.Name, result.Scan.Description
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_scan", "name", plan.Name.ValueString(), echoedName)
+	requireEcho(&resp.Diagnostics, "tenableio_scan", "description", plan.Description.ValueString(), echoedDescription)
 }
 
 func (r *ScanResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -370,7 +396,15 @@ func (r *ScanResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	plan.CreationDate = types.Int64Value(int64(result.Info.CreationDate))
 	plan.LastModifiedDate = types.Int64Value(int64(result.Info.LastModificationDate))
 
+	if plan.Launch.IsUnknown() {
+		plan.Launch = types.StringValue(result.Info.Launch)
+	}
+
+	echoedName, echoedDescription := result.Info.Name, result.Info.Description
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_scan", "name", plan.Name.ValueString(), echoedName)
+	requireEcho(&resp.Diagnostics, "tenableio_scan", "description", plan.Description.ValueString(), echoedDescription)
 }
 
 func (r *ScanResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

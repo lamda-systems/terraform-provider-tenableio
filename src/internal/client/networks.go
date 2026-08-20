@@ -6,26 +6,32 @@ import (
 )
 
 type Network struct {
-	UUID               string `json:"uuid"`
-	Name               string `json:"name"`
-	Description        string `json:"description"`
-	IsDefault          bool   `json:"is_default"`
-	CreatedBy          string `json:"created_by"`
-	CreatedInSeconds   int    `json:"created_in_seconds"`
-	ModifiedInSeconds  int    `json:"modified_in_seconds"`
-	ScannerCount       int    `json:"scanner_count"`
-	AssetsTTLDays      int    `json:"assets_ttl_days"`
+	UUID              string `json:"uuid"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	IsDefault         bool   `json:"is_default"`
+	CreatedBy         string `json:"created_by"`
+	CreatedInSeconds  int    `json:"created_in_seconds"`
+	ModifiedInSeconds int    `json:"modified_in_seconds"`
+	ScannerCount      int    `json:"scanner_count"`
+	AssetsTTLDays     int    `json:"assets_ttl_days"`
 }
 
+// Fields that the resource schema gives a Default must NOT be tagged
+// omitempty. The schema promises the attribute always has a value, so the plan
+// always carries one; dropping it from the wire when it happens to be the zero
+// value means the API never learns the user cleared it, echoes the stale value
+// back, and the apply fails on a mismatch the provider itself created.
+// omitempty stays only where absence is genuinely meaningful.
 type NetworkCreateRequest struct {
 	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
+	Description   string `json:"description"`
 	AssetsTTLDays int    `json:"assets_ttl_days,omitempty"`
 }
 
 type NetworkUpdateRequest struct {
 	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
+	Description   string `json:"description"`
 	AssetsTTLDays int    `json:"assets_ttl_days,omitempty"`
 }
 

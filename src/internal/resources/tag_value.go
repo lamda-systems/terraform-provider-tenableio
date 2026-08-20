@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
@@ -93,6 +94,7 @@ func (r *TagValueResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplaceIfConfigured(),
 				},
+				Validators: []validator.String{NoSurroundingWhitespace()},
 			},
 			"category_description": schema.StringAttribute{
 				Description: "Description for a new category (used only when category_name creates a new category). Cannot be changed after creation.",
@@ -101,16 +103,19 @@ func (r *TagValueResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 					stringplanmodifier.UseStateForUnknown(),
 					stringplanmodifier.RequiresReplace(),
 				},
+				Validators: []validator.String{NoSurroundingWhitespace()},
 			},
 			"value": schema.StringAttribute{
 				Description: "The tag value.",
 				Required:    true,
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"description": schema.StringAttribute{
 				Description: "The description of the tag value.",
 				Optional:    true,
 				Computed:    true,
 				Default:     stringdefault.StaticString(""),
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"type": schema.StringAttribute{
 				Description: "The type of the tag value (static or dynamic).",
@@ -288,8 +293,10 @@ func (r *TagValueResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	r.mapToState(result, &plan)
+	r.applyComputed(result, &plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_tag_value", "value", plan.Value.ValueString(), result.Value)
+	requireEcho(&resp.Diagnostics, "tenableio_tag_value", "description", plan.Description.ValueString(), result.Description)
 }
 
 func (r *TagValueResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -337,8 +344,10 @@ func (r *TagValueResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	r.mapToState(result, &plan)
+	r.applyComputed(result, &plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_tag_value", "value", plan.Value.ValueString(), result.Value)
+	requireEcho(&resp.Diagnostics, "tenableio_tag_value", "description", plan.Description.ValueString(), result.Description)
 }
 
 func (r *TagValueResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -405,4 +414,39 @@ func (r *TagValueResource) mapToState(tv *client.TagValue, state *TagValueResour
 	state.CreatedBy = types.StringValue(tv.CreatedBy)
 	state.UpdatedAt = types.StringValue(tv.UpdatedAt)
 	state.UpdatedBy = types.StringValue(tv.UpdatedBy)
+}
+
+// applyComputed copies back only the attributes Terraform could not know at
+// plan time. Attributes that came from configuration are deliberately left as
+// planned.
+//
+// Terraform requires the value applied to equal the value planned for every
+// attribute that was known during planning. Writing the API's echo over a known
+// plan value therefore turns any server-side normalisation -- trimming, case
+// folding, a silently substituted default -- into an unrecoverable "Provider
+// produced inconsistent result after apply". Divergence is not swallowed: the
+// next Read maps the whole object and surfaces it as an ordinary diff the user
+// can act on.
+//
+// Read and ImportState use mapToState instead, which maps everything, because
+// there the API is the source of truth.
+func (r *TagValueResource) applyComputed(tv *client.TagValue, state *TagValueResourceModel) {
+	state.UUID = types.StringValue(tv.UUID)
+	state.Type = types.StringValue(tv.Type)
+	state.CreatedAt = types.StringValue(tv.CreatedAt)
+	state.CreatedBy = types.StringValue(tv.CreatedBy)
+	state.UpdatedAt = types.StringValue(tv.UpdatedAt)
+	state.UpdatedBy = types.StringValue(tv.UpdatedBy)
+
+	// category_uuid and category_name are Optional+Computed with no default, so
+	// whichever one the configuration left out is unknown at plan time and has
+	// to be filled from the response. The one that was configured stays exactly
+	// as planned -- notably, a category_name that Tenable.io normalises must not
+	// be written back here.
+	if state.CategoryUUID.IsUnknown() {
+		state.CategoryUUID = types.StringValue(tv.CategoryUUID)
+	}
+	if state.CategoryName.IsUnknown() {
+		state.CategoryName = types.StringValue(tv.CategoryName)
+	}
 }

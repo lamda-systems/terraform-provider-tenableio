@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
@@ -61,12 +62,14 @@ func (r *PolicyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"name": schema.StringAttribute{
 				Description: "The name of the policy.",
 				Required:    true,
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"description": schema.StringAttribute{
 				Description: "The description of the policy.",
 				Optional:    true,
 				Computed:    true,
 				Default:     stringdefault.StaticString(""),
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"visibility": schema.StringAttribute{
 				Description: "The visibility of the policy: shared or private.",
@@ -143,6 +146,9 @@ func (r *PolicyResource) Create(ctx context.Context, req resource.CreateRequest,
 	plan.LastModificationDate = types.Int64Value(int64(detail.LastModificationDate))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_policy", "name", plan.Name.ValueString(), detail.Name)
+	requireEcho(&resp.Diagnostics, "tenableio_policy", "description", plan.Description.ValueString(), detail.Description)
+	requireEcho(&resp.Diagnostics, "tenableio_policy", "visibility", plan.Visibility.ValueString(), detail.Visibility)
 }
 
 func (r *PolicyResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -219,6 +225,9 @@ func (r *PolicyResource) Update(ctx context.Context, req resource.UpdateRequest,
 	plan.LastModificationDate = types.Int64Value(int64(detail.LastModificationDate))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_policy", "name", plan.Name.ValueString(), detail.Name)
+	requireEcho(&resp.Diagnostics, "tenableio_policy", "description", plan.Description.ValueString(), detail.Description)
+	requireEcho(&resp.Diagnostics, "tenableio_policy", "visibility", plan.Visibility.ValueString(), detail.Visibility)
 }
 
 func (r *PolicyResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

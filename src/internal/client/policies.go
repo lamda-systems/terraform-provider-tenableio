@@ -5,10 +5,16 @@ import (
 	"fmt"
 )
 
+// Fields that the resource schema gives a Default must NOT be tagged
+// omitempty. The schema promises the attribute always has a value, so the plan
+// always carries one; dropping it from the wire when it happens to be the zero
+// value means the API never learns the user cleared it, echoes the stale value
+// back, and the apply fails on a mismatch the provider itself created.
+// omitempty stays only where absence is genuinely meaningful.
 type PolicySettings struct {
 	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Visibility  string `json:"visibility,omitempty"`
+	Description string `json:"description"`
+	Visibility  string `json:"visibility"`
 }
 
 type PolicyCreateRequest struct {

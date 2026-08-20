@@ -14,19 +14,25 @@ type ExclusionSchedule struct {
 }
 
 type Exclusion struct {
-	ID                   int                `json:"id"`
-	Name                 string             `json:"name"`
-	Description          string             `json:"description"`
-	Members              string             `json:"members"`
-	NetworkID            string             `json:"network_id"`
-	Schedule             ExclusionSchedule  `json:"schedule"`
-	CreationDate         int                `json:"creation_date"`
-	LastModificationDate int                `json:"last_modification_date"`
+	ID                   int               `json:"id"`
+	Name                 string            `json:"name"`
+	Description          string            `json:"description"`
+	Members              string            `json:"members"`
+	NetworkID            string            `json:"network_id"`
+	Schedule             ExclusionSchedule `json:"schedule"`
+	CreationDate         int               `json:"creation_date"`
+	LastModificationDate int               `json:"last_modification_date"`
 }
 
+// Fields that the resource schema gives a Default must NOT be tagged
+// omitempty. The schema promises the attribute always has a value, so the plan
+// always carries one; dropping it from the wire when it happens to be the zero
+// value means the API never learns the user cleared it, echoes the stale value
+// back, and the apply fails on a mismatch the provider itself created.
+// omitempty stays only where absence is genuinely meaningful.
 type ExclusionCreateRequest struct {
 	Name        string             `json:"name"`
-	Description string             `json:"description,omitempty"`
+	Description string             `json:"description"`
 	Members     string             `json:"members"`
 	NetworkID   string             `json:"network_id,omitempty"`
 	Schedule    *ExclusionSchedule `json:"schedule,omitempty"`
@@ -34,7 +40,7 @@ type ExclusionCreateRequest struct {
 
 type ExclusionUpdateRequest struct {
 	Name        string             `json:"name"`
-	Description string             `json:"description,omitempty"`
+	Description string             `json:"description"`
 	Members     string             `json:"members"`
 	NetworkID   string             `json:"network_id,omitempty"`
 	Schedule    *ExclusionSchedule `json:"schedule,omitempty"`

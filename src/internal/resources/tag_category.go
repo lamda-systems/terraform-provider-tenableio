@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
@@ -54,12 +55,14 @@ func (r *TagCategoryResource) Schema(_ context.Context, _ resource.SchemaRequest
 			"name": schema.StringAttribute{
 				Description: "The name of the tag category (max 127 characters).",
 				Required:    true,
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"description": schema.StringAttribute{
 				Description: "The description of the tag category (max 3000 characters).",
 				Optional:    true,
 				Computed:    true,
 				Default:     stringdefault.StaticString(""),
+				Validators:  []validator.String{NoSurroundingWhitespace()},
 			},
 			"created_at": schema.StringAttribute{
 				Computed: true,
@@ -106,8 +109,10 @@ func (r *TagCategoryResource) Create(ctx context.Context, req resource.CreateReq
 		return
 	}
 
-	r.mapToState(result, &plan)
+	r.applyComputed(result, &plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_tag_category", "name", plan.Name.ValueString(), result.Name)
+	requireEcho(&resp.Diagnostics, "tenableio_tag_category", "description", plan.Description.ValueString(), result.Description)
 }
 
 func (r *TagCategoryResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -153,8 +158,10 @@ func (r *TagCategoryResource) Update(ctx context.Context, req resource.UpdateReq
 		return
 	}
 
-	r.mapToState(result, &plan)
+	r.applyComputed(result, &plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	requireEcho(&resp.Diagnostics, "tenableio_tag_category", "name", plan.Name.ValueString(), result.Name)
+	requireEcho(&resp.Diagnostics, "tenableio_tag_category", "description", plan.Description.ValueString(), result.Description)
 }
 
 func (r *TagCategoryResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -186,6 +193,28 @@ func (r *TagCategoryResource) mapToState(tc *client.TagCategory, state *TagCateg
 	state.UUID = types.StringValue(tc.UUID)
 	state.Name = types.StringValue(tc.Name)
 	state.Description = types.StringValue(tc.Description)
+	state.CreatedAt = types.StringValue(tc.CreatedAt)
+	state.CreatedBy = types.StringValue(tc.CreatedBy)
+	state.UpdatedAt = types.StringValue(tc.UpdatedAt)
+	state.UpdatedBy = types.StringValue(tc.UpdatedBy)
+}
+
+// applyComputed copies back only the attributes Terraform could not know at
+// plan time. Attributes that came from configuration are deliberately left as
+// planned.
+//
+// Terraform requires the value applied to equal the value planned for every
+// attribute that was known during planning. Writing the API's echo over a known
+// plan value therefore turns any server-side normalisation -- trimming, case
+// folding, a silently substituted default -- into an unrecoverable "Provider
+// produced inconsistent result after apply". Divergence is not swallowed: the
+// next Read maps the whole object and surfaces it as an ordinary diff the user
+// can act on.
+//
+// Read and ImportState use mapToState instead, which maps everything, because
+// there the API is the source of truth.
+func (r *TagCategoryResource) applyComputed(tc *client.TagCategory, state *TagCategoryResourceModel) {
+	state.UUID = types.StringValue(tc.UUID)
 	state.CreatedAt = types.StringValue(tc.CreatedAt)
 	state.CreatedBy = types.StringValue(tc.CreatedBy)
 	state.UpdatedAt = types.StringValue(tc.UpdatedAt)
