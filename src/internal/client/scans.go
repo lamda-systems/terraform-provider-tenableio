@@ -5,9 +5,15 @@ import (
 	"fmt"
 )
 
+// Fields that the resource schema gives a Default must NOT be tagged
+// omitempty. The schema promises the attribute always has a value, so the plan
+// always carries one; dropping it from the wire when it happens to be the zero
+// value means the API never learns the user cleared it, echoes the stale value
+// back, and the apply fails on a mismatch the provider itself created.
+// omitempty stays only where absence is genuinely meaningful.
 type ScanSettings struct {
 	Name           string   `json:"name"`
-	Description    string   `json:"description,omitempty"`
+	Description    string   `json:"description"`
 	PolicyID       int      `json:"policy_id,omitempty"`
 	FolderID       int      `json:"folder_id,omitempty"`
 	ScannerID      int      `json:"scanner_id,omitempty"`
@@ -38,25 +44,25 @@ type ScanCreateResponse struct {
 }
 
 type ScanDetail struct {
-	ID                 int    `json:"id"`
-	UUID               string `json:"uuid"`
-	Name               string `json:"name"`
-	Description        string `json:"description"`
-	PolicyID           int    `json:"policy_id"`
-	FolderID           int    `json:"folder_id"`
-	ScannerID          int    `json:"scanner_id"`
-	TextTargets        string `json:"text_targets"`
-	Starttime          string `json:"starttime"`
-	RRules             string `json:"rrules"`
-	Timezone           string `json:"timezone"`
-	Emails             string `json:"emails"`
-	Enabled            bool   `json:"enabled"`
-	Launch             string `json:"launch"`
-	ScanTimeWindow     int    `json:"scan_time_window"`
-	Status             string `json:"status"`
-	CreationDate       int    `json:"creation_date"`
-	LastModificationDate int  `json:"last_modification_date"`
-	Type               string `json:"type"`
+	ID                   int    `json:"id"`
+	UUID                 string `json:"uuid"`
+	Name                 string `json:"name"`
+	Description          string `json:"description"`
+	PolicyID             int    `json:"policy_id"`
+	FolderID             int    `json:"folder_id"`
+	ScannerID            int    `json:"scanner_id"`
+	TextTargets          string `json:"text_targets"`
+	Starttime            string `json:"starttime"`
+	RRules               string `json:"rrules"`
+	Timezone             string `json:"timezone"`
+	Emails               string `json:"emails"`
+	Enabled              bool   `json:"enabled"`
+	Launch               string `json:"launch"`
+	ScanTimeWindow       int    `json:"scan_time_window"`
+	Status               string `json:"status"`
+	CreationDate         int    `json:"creation_date"`
+	LastModificationDate int    `json:"last_modification_date"`
+	Type                 string `json:"type"`
 }
 
 type ScanDetailsResponse struct {

@@ -16,14 +16,20 @@ type TagCategory struct {
 	UpdatedBy   string `json:"updated_by"`
 }
 
+// Fields that the resource schema gives a Default must NOT be tagged
+// omitempty. The schema promises the attribute always has a value, so the plan
+// always carries one; dropping it from the wire when it happens to be the zero
+// value means the API never learns the user cleared it, echoes the stale value
+// back, and the apply fails on a mismatch the provider itself created.
+// omitempty stays only where absence is genuinely meaningful.
 type TagCategoryCreateRequest struct {
 	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Description string `json:"description"`
 }
 
 type TagCategoryUpdateRequest struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type TagCategoriesListResponse struct {
@@ -134,18 +140,20 @@ type TagValue struct {
 }
 
 type TagValueCreateRequest struct {
-	CategoryUUID        string           `json:"category_uuid,omitempty"`
-	CategoryName        string           `json:"category_name,omitempty"`
-	CategoryDescription string           `json:"category_description,omitempty"`
-	Value               string           `json:"value"`
-	Description         string           `json:"description,omitempty"`
-	Filters             *TagValueFilters `json:"filters,omitempty"`
+	CategoryUUID        string `json:"category_uuid,omitempty"`
+	CategoryName        string `json:"category_name,omitempty"`
+	CategoryDescription string `json:"category_description,omitempty"`
+	Value               string `json:"value"`
+	Description         string `json:"description"`
+	// filters keeps omitempty: its presence is what makes a tag dynamic.
+	Filters *TagValueFilters `json:"filters,omitempty"`
 }
 
 type TagValueUpdateRequest struct {
-	Value       string           `json:"value,omitempty"`
-	Description string           `json:"description,omitempty"`
-	Filters     *TagValueFilters `json:"filters,omitempty"`
+	Value       string `json:"value"`
+	Description string `json:"description"`
+	// filters keeps omitempty: its presence is what makes a tag dynamic.
+	Filters *TagValueFilters `json:"filters,omitempty"`
 }
 
 type TagValuesListResponse struct {
