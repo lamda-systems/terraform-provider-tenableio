@@ -46,6 +46,10 @@ src/
 │   └── datasources/             # Terraform data sources (read-only)
 ├── examples/                    # Example .tf files (used by tfplugindocs)
 └── templates/                   # Doc templates for tfplugindocs
+
+mockapi/                         # Python/FastAPI fake of the Tenable.io API
+├── tenableio_mock/              # app factory, config/quirks, routers, store
+└── tests/                       # pytest suite, no credentials needed
 ```
 
 ## Commands
@@ -75,6 +79,58 @@ cd src && make install
 # Run full pre-commit checks (lint + security + tests)
 bash .githooks/pre-commit
 ```
+
+## Mock API
+
+`mockapi/` is a Python/FastAPI in-memory fake of every Tenable.io endpoint the
+client calls. It lets the provider be exercised end to end without credentials.
+Full detail in [mockapi/README.md](mockapi/README.md).
+
+```bash
+cd mockapi && make venv     # one-off
+cd mockapi && make test     # pytest suite
+cd mockapi && make run      # serves on 0.0.0.0:8080
+```
+
+The devcontainer's `compose-local.yaml` runs it as a `mockapi` service and sets
+`TENABLEIO_BASE_URL=http://mockapi:8080` on the Go container, so local provider
+runs hit the mock by default. Unset or override that variable to reach a live
+tenant.
+
+**The mock is deliberately stricter than convenient.** It echoes back exactly
+what it was given and rejects what the real API rejects, because a mock more
+forgiving than production certifies provider bugs as passing. Two consequences
+worth remembering when a test fails against it:
+
+- It reproduces the request/response divergences documented under Tags above —
+  stringified `filters.asset`, `property`→`field`, readable operators→short
+  codes, single values collapsed to bare strings — plus the scan `POST`/`GET`
+  key renames and the empty bodies several writes return.
+- `POST /tags/categories` answers 400 on a duplicate name rather than returning
+  the existing category. `POST /tags/values` with a `category_name` *does*
+  create or reuse one. That asymmetry is real, not a mock artefact.
+
+Where the docs genuinely leave a behaviour unresolved, the mock does not guess:
+it implements the conservative reading and exposes the alternative as an
+environment variable (`MOCK_OMITTED_DESCRIPTION`, `MOCK_OMITTED_FILTERS`,
+`MOCK_LOWERCASE_CATEGORY_NAMES`). **A correct provider passes under every
+combination** — testing one setting proves nothing. `MOCK_OMITTED_DESCRIPTION=preserves`
+and `MOCK_LOWERCASE_CATEGORY_NAMES=1` reproduce the "Provider produced
+inconsistent result after apply" failures on `.description` and `.name`.
+
+`src/internal/client/mockapi_integration_test.go` drives the real client
+against the mock to prove the two agree on the wire. It skips unless
+`TENABLEIO_MOCK_URL` is set, so `make test` stays credential-free:
+
+```bash
+cd mockapi && make run
+cd src && TENABLEIO_MOCK_URL=http://127.0.0.1:8080 go test ./internal/client/ -run Mock -v
+```
+
+Every request is recorded at `GET /__mock/requests`. Each record carries
+`body_keys`, the keys physically present in the body — asserting a key is
+*absent* is how a Go `omitempty` that drops a meaningful empty string gets
+caught, which value inspection cannot do.
 
 ## CI Pipeline
 
@@ -156,6 +212,67 @@ Consequences baked into the code, do not "simplify" them away:
 Limits from the API: 40 rules per tag, 1,024 values per rule, 1 MB request body.
 
 **Unverified against a live tenant** (implemented from docs only) — confirm with `TF_ACC=1` before relying on them: static→dynamic conversion via update, the exact response echo format, and clear-on-omit semantics.
+
+## Reconciling API Responses with the Plan
+
+Terraform requires the value applied to equal the value planned for every
+attribute known during planning. Writing an API echo over a known plan value
+turns any server-side normalisation into an unrecoverable "Provider produced
+inconsistent result after apply", naming neither the attribute nor the cause.
+Three rules follow, and all three are load-bearing:
+
+1. **Create and Update write back only computed-only attributes.** Each affected
+   resource has an `applyComputed` for that path; `mapToState` (mapping
+   everything) is for Read and ImportState, where the API is the source of
+   truth. An Optional+Computed attribute with no default is unknown at plan time
+   and must be settled from the response — guard those with `IsUnknown()`.
+
+2. **Divergence is an error, not a warning.** `requireEcho` in
+   [helpers.go](src/internal/resources/helpers.go) compares the echo against the
+   planned value and fails the apply, naming the attribute and both values. Call
+   it *after* `State.Set` so a created object is still recorded rather than
+   leaked. Keeping the plan value silently would trade a crash for a plan that
+   proposes the same change on every run and never settles, with nothing on
+   screen explaining why.
+
+3. **Whitespace is rejected during validation.** `NoSurroundingWhitespace()` in
+   [validators.go](src/internal/resources/validators.go) goes on every string
+   attribute sent to Tenable.io, which trims these fields server-side. Silent
+   trimming is not an option: a plan modifier may only change a Computed
+   attribute, and most of these are Required. Rejecting at validate time also
+   catches it before any API call.
+
+Two related traps:
+
+- **An Optional attribute the server populates must also be Computed.**
+  Otherwise the value the API chose sits in state against a null configuration
+  and diffs forever. `launch` on `tenableio_scan` is the worked example.
+  `readOptionalString`/`readOptionalInt64` adopt API values so import works, so
+  they are only safe on Optional+Computed attributes.
+- **A request field backing an attribute with a `Default` must not be tagged
+  `omitempty`.** The schema promises a value is always present, so eliding it
+  when it is empty means the API never learns the user cleared it. `omitempty`
+  stays only where absence is meaningful — `filters` on a tag value, the
+  mutually exclusive `category_uuid`/`category_name`, and the scan and exclusion
+  fields with no default. Covered by `TestRequestsSendClearedFieldsExplicitly`.
+
+Errors returned by `internal/client` are always wrapped with `%w`, so anything
+inspecting them must use `errors.As`, never a type assertion. `IsNotFound` did
+the latter and therefore always returned false, which left every resource unable
+to detect out-of-band deletion.
+
+## QA
+
+`qa/` runs real Terraform against the mock. `./qa/run.sh` builds the provider,
+points Terraform at it with `dev_overrides` (no registry, no `terraform init`),
+and drives two stacks through apply → re-plan → re-apply → destroy under three
+mock profiles. Details in [qa/README.md](qa/README.md).
+
+The assertion that earns its keep is **the second plan being empty**: that is
+what proves the provider persisted exactly what it planned. `qa/guards/` holds
+configuration that must *fail* `terraform validate`, and `EXPECT_APPLY_ERROR` in
+`run.sh` lists stack/profile pairs where the apply is supposed to stop with a
+provider error — under the `normalise` profile a clean apply would be the bug.
 
 ## Conventions
 

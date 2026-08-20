@@ -50,7 +50,7 @@ resource "tenableio_scan" "weekly" {
 - `enabled` (Boolean) Whether the scan schedule is enabled.
 - `file_targets` (String) Name of an uploaded file containing scan targets.
 - `folder_id` (Number) The ID of the folder to store the scan in.
-- `launch` (String) Launch schedule type: ON_DEMAND, DAILY, WEEKLY, MONTHLY, YEARLY.
+- `launch` (String) Launch schedule type: ON_DEMAND, DAILY, WEEKLY, MONTHLY, YEARLY. Defaults to whatever Tenable.io assigns when omitted.
 - `policy_id` (Number) The ID of the policy to use for the scan.
 - `rrules` (String) Recurrence rules for the scan schedule (iCal RRULE format).
 - `scan_time_window` (Number) Maximum time window in minutes for the scan to run.

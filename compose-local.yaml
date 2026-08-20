@@ -11,3 +11,26 @@ services:
     environment:
       - GOPATH=/go
       - GOCACHE=/go/cache
+      # Point the provider at the mock by default for local runs. Override with
+      # the real base URL (or unset it) to talk to a live tenant.
+      - TENABLEIO_BASE_URL=http://mockapi:8080
+
+  # In-memory Tenable.io fake, so the provider can be exercised without
+  # credentials. See mockapi/README.md for the quirk switches.
+  mockapi:
+    build:
+      context: ./mockapi
+      dockerfile: Dockerfile
+    init: true
+    ports:
+      # Exposed on the host too, so `curl` and Terraform outside the
+      # devcontainer can reach it.
+      - "8080:8080"
+    environment:
+      # Strict by default: no quirks, deterministic identifiers, frozen clock.
+      - MOCK_SEED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/__mock/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
