@@ -25,4 +25,5 @@ docker-build:
 	docker build -t tenableio-mock:local .
 
 clean:
-	rm -rf $(VENV) .pytest_cache **/__pycache__
+	rm -rf $(VENV) .pytest_cache
+	find . -type d -name __pycache__ -prune -exec rm -rf {} +
