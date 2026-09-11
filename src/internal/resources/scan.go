@@ -3,7 +3,9 @@ package resources
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -251,6 +253,32 @@ func (r *ScanResource) Create(ctx context.Context, req resource.CreateRequest, r
 		return
 	}
 
+	// A response with no scan id is not a created scan, whatever its status
+	// code. Every later call addresses the scan by that id, so recording 0
+	// would point the next read, update or destroy at /scans/0. Stop here and
+	// name the real problem: a body that is valid JSON but not shaped like
+	// {"scan": {...}} deserialises into an entirely zero-valued scan, and the
+	// echo checks below would then blame the name and description for being
+	// empty when it is the whole object that is missing.
+	if result.Scan.ID == 0 {
+		resp.Diagnostics.AddError(
+			"Unreadable Response From Tenable.io",
+			fmt.Sprintf(
+				"POST %s/scans reported success, but the provider found no scan id in the response "+
+					"body. The object it returned carried these keys: %s.\n\n"+
+					"Nothing has been recorded in Terraform state, because there is no id to record "+
+					"it under. The scan may still exist in Tenable.io: check the target folder and "+
+					"delete it by hand before applying again, or the next apply creates a second "+
+					"one.\n\n"+
+					"A body that is valid JSON but not shaped like {\"scan\": {...}} -- an API "+
+					"gateway envelope, or a proxy answering on Tenable's behalf -- arrives here as "+
+					"an empty scan. Check that the URL above is the tenant you expect.",
+				r.client.BaseURL, keyList(result.Scan.PresentKeys),
+			),
+		)
+		return
+	}
+
 	plan.ID = types.Int64Value(int64(result.Scan.ID))
 	plan.UUID = types.StringValue(result.Scan.UUID)
 	plan.Status = types.StringValue(result.Scan.Status)
@@ -264,11 +292,16 @@ func (r *ScanResource) Create(ctx context.Context, req resource.CreateRequest, r
 		plan.Launch = types.StringValue(result.Scan.Launch)
 	}
 
-	echoedName, echoedDescription := result.Scan.Name, result.Scan.Description
+	source := echoSource(http.MethodPost, r.client.BaseURL+"/scans", result.Scan.PresentKeys, r.client.ProxyForURL())
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	requireEcho(&resp.Diagnostics, "tenableio_scan", "name", plan.Name.ValueString(), echoedName)
-	requireEcho(&resp.Diagnostics, "tenableio_scan", "description", plan.Description.ValueString(), echoedDescription)
+	requireEcho(&resp.Diagnostics, "tenableio_scan", "name", plan.Name.ValueString(), result.Scan.Name, source)
+	// POST /scans documents description on the response, but only a response
+	// that actually carries the key says anything about what was stored. A
+	// missing key is not an empty description -- see ScanInfo.Description.
+	if echoed := result.Scan.Description; echoed != nil {
+		requireEcho(&resp.Diagnostics, "tenableio_scan", "description", plan.Description.ValueString(), *echoed, source)
+	}
 }
 
 func (r *ScanResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -291,7 +324,12 @@ func (r *ScanResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	info := result.Info
 	state.UUID = types.StringValue(info.UUID)
 	state.Name = types.StringValue(info.Name)
-	state.Description = types.StringValue(info.Description)
+	// GET /scans/{id} does not report the description, so there is nothing to
+	// reconcile and state keeps the value it already has. Overwriting it with ""
+	// made every refresh invent a change, and the update that followed then
+	// failed because the scan details endpoint cannot echo a description back.
+	// The cost is that an out-of-band description edit goes undetected.
+	state.Description = readReportedString(state.Description, info.Description)
 	state.Status = types.StringValue(info.Status)
 	state.Enabled = types.BoolValue(info.Enabled)
 	state.CreationDate = types.Int64Value(int64(info.CreationDate))
@@ -379,7 +417,8 @@ func (r *ScanResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	scanID := int(state.ID.ValueInt64())
-	if err := r.client.UpdateScan(ctx, scanID, updateReq); err != nil {
+	updated, err := r.client.UpdateScan(ctx, scanID, updateReq)
+	if err != nil {
 		resp.Diagnostics.AddError("Error Updating Scan", err.Error())
 		return
 	}
@@ -400,11 +439,45 @@ func (r *ScanResource) Update(ctx context.Context, req resource.UpdateRequest, r
 		plan.Launch = types.StringValue(result.Info.Launch)
 	}
 
-	echoedName, echoedDescription := result.Info.Name, result.Info.Description
+	scanURL := fmt.Sprintf("%s/scans/%d", r.client.BaseURL, scanID)
+	proxy := r.client.ProxyForURL()
+	detailsSource := echoSource(http.MethodGet, scanURL, result.Info.PresentKeys, proxy)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	requireEcho(&resp.Diagnostics, "tenableio_scan", "name", plan.Name.ValueString(), echoedName)
-	requireEcho(&resp.Diagnostics, "tenableio_scan", "description", plan.Description.ValueString(), echoedDescription)
+	requireEcho(&resp.Diagnostics, "tenableio_scan", "name", plan.Name.ValueString(), result.Info.Name, detailsSource)
+	// The PUT echo is the only response that reports a description, and not
+	// every tenant sends a body. When neither the echo nor the details response
+	// carries the field the description is simply unverifiable: state keeps the
+	// planned value, which is what was sent.
+	if echoed, fromUpdate := echoedScanDescription(updated, result); echoed != nil {
+		source := detailsSource
+		if fromUpdate {
+			source = echoSource(http.MethodPut, scanURL, updated.Scan.PresentKeys, proxy)
+		}
+		requireEcho(&resp.Diagnostics, "tenableio_scan", "description", plan.Description.ValueString(), *echoed, source)
+	}
+}
+
+// echoedScanDescription returns the description Tenable.io reported back for an
+// update, or nil when no response carried one. The second result says whether it
+// came from the update echo rather than the details response, so a diagnostic
+// can name the right one.
+func echoedScanDescription(updated *client.ScanUpdateResponse, details *client.ScanDetailsResponse) (*string, bool) {
+	if updated != nil && updated.Scan != nil && updated.Scan.Description != nil {
+		return updated.Scan.Description, true
+	}
+	if details != nil {
+		return details.Info.Description, false
+	}
+	return nil, false
+}
+
+// keyList renders the keys a response carried for a diagnostic.
+func keyList(keys []string) string {
+	if len(keys) == 0 {
+		return "none at all"
+	}
+	return strings.Join(keys, ", ")
 }
 
 func (r *ScanResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -437,11 +510,15 @@ func (r *ScanResource) ImportState(ctx context.Context, req resource.ImportState
 	// Import starts with zero-value (null) types, so readOptional* will only
 	// populate fields that have non-zero API values — correct for import.
 	state := ScanResourceModel{
-		ID:               types.Int64Value(scanID),
-		UUID:             types.StringValue(info.UUID),
-		TemplateUUID:     types.StringValue(info.TemplateUUID),
-		Name:             types.StringValue(info.Name),
-		Description:      types.StringValue(info.Description),
+		ID:           types.Int64Value(scanID),
+		UUID:         types.StringValue(info.UUID),
+		TemplateUUID: types.StringValue(info.TemplateUUID),
+		Name:         types.StringValue(info.Name),
+		// The details endpoint does not report the description, so an import
+		// adopts the schema default. The first plan after importing a described
+		// scan therefore proposes writing the configured text back; that update
+		// is a no-op against the stored value, not drift.
+		Description:      readReportedString(types.StringValue(""), info.Description),
 		Enabled:          types.BoolValue(info.Enabled),
 		Status:           types.StringValue(info.Status),
 		CreationDate:     types.Int64Value(int64(info.CreationDate)),

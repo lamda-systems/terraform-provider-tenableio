@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tenableio_mock.config import OnOmit, settings_from_env
+from tenableio_mock.config import OnOmit, ScanUpdateEcho, settings_from_env
 
 
 def test_defaults_are_strict() -> None:
@@ -13,6 +13,8 @@ def test_defaults_are_strict() -> None:
     assert settings.quirks.on_omitted_filters is OnOmit.CLEARS
     assert settings.quirks.lowercase_category_names is False
     assert settings.quirks.reject_unknown_fields is False
+    assert settings.quirks.scan_details_description is False
+    assert settings.quirks.scan_update_echo is ScanUpdateEcho.EMPTY
     assert settings.access_key == ""
     assert settings.seed is True
     assert settings.frozen_clock is True
@@ -25,12 +27,16 @@ def test_quirks_are_read_from_the_environment() -> None:
             "MOCK_OMITTED_FILTERS": "preserves",
             "MOCK_LOWERCASE_CATEGORY_NAMES": "true",
             "MOCK_REJECT_UNKNOWN_FIELDS": "1",
+            "MOCK_SCAN_DETAILS_DESCRIPTION": "1",
+            "MOCK_SCAN_UPDATE_ECHO": "object",
         }
     )
     assert settings.quirks.on_omitted_description is OnOmit.PRESERVES
     assert settings.quirks.on_omitted_filters is OnOmit.PRESERVES
     assert settings.quirks.lowercase_category_names is True
     assert settings.quirks.reject_unknown_fields is True
+    assert settings.quirks.scan_details_description is True
+    assert settings.quirks.scan_update_echo is ScanUpdateEcho.OBJECT
 
 
 @pytest.mark.parametrize("raw", ["1", "true", "TRUE", "yes", "on"])
@@ -53,6 +59,11 @@ def test_an_invalid_omit_policy_fails_loudly() -> None:
     """Better a startup crash than a mock silently running the wrong semantics."""
     with pytest.raises(ValueError, match="MOCK_OMITTED_DESCRIPTION"):
         settings_from_env({"MOCK_OMITTED_DESCRIPTION": "sometimes"})
+
+
+def test_an_invalid_scan_update_echo_fails_loudly() -> None:
+    with pytest.raises(ValueError, match="MOCK_SCAN_UPDATE_ECHO"):
+        settings_from_env({"MOCK_SCAN_UPDATE_ECHO": "maybe"})
 
 
 def test_credentials_and_user() -> None:

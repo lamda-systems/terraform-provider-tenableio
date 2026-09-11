@@ -35,6 +35,22 @@ class OnOmit(str, Enum):
     PRESERVES = "preserves"
 
 
+class ScanUpdateEcho(str, Enum):
+    """What ``PUT /scans/{id}`` answers with.
+
+    Tenable.io documents the response as the scan object *bare* -- not wrapped
+    in ``"scan"`` the way ``POST /scans`` wraps it -- but live tenants have been
+    observed answering with no body at all, and the docs also say the 200 has no
+    content in places. The two readings matter because the update echo is the
+    *only* response that reports a scan's description: ``GET /scans/{id}`` never
+    does. A provider that needs the echo to verify what it wrote must therefore
+    also cope with not getting one.
+    """
+
+    EMPTY = "empty"
+    OBJECT = "object"
+
+
 @dataclass(frozen=True)
 class Quirks:
     """Behaviours that are undocumented, or documented inconsistently.
@@ -62,6 +78,20 @@ class Quirks:
     #: attribute that writes an echoed category name straight into Terraform
     #: state fails its apply when this is on.
     lowercase_category_names: bool = False
+
+    #: Report ``description`` in the ``info`` object of ``GET /scans/{id}``.
+    #:
+    #: Live Tenable.io does not: the scan details endpoint describes a scan
+    #: *result*, and its documented ``info`` schema has no ``description`` at
+    #: all. The mock used to echo one, which is why a provider that read its
+    #: state back from that endpoint passed here and then reported every
+    #: described scan as having had its description wiped in production. Off is
+    #: the faithful setting; turn it on only to prove the provider also accepts
+    #: a tenant that does report it.
+    scan_details_description: bool = False
+
+    #: What ``PUT /scans/{id}`` returns. See :class:`ScanUpdateEcho`.
+    scan_update_echo: ScanUpdateEcho = ScanUpdateEcho.EMPTY
 
     #: Reject request bodies carrying fields the endpoint does not define.
     #:
@@ -117,6 +147,11 @@ def settings_from_env(env: dict[str, str] | None = None) -> Settings:
         ``clears`` (default) or ``preserves``.
     ``MOCK_OMITTED_FILTERS``
         ``clears`` (default) or ``preserves``.
+    ``MOCK_SCAN_DETAILS_DESCRIPTION``
+        Report ``description`` on ``GET /scans/{id}``. Default off, which is
+        what live Tenable.io does.
+    ``MOCK_SCAN_UPDATE_ECHO``
+        ``empty`` (default) or ``object``.
     ``MOCK_LOWERCASE_CATEGORY_NAMES``
         Default off.
     ``MOCK_REJECT_UNKNOWN_FIELDS``
@@ -143,10 +178,24 @@ def settings_from_env(env: dict[str, str] | None = None) -> Settings:
         quirks=Quirks(
             on_omitted_description=omitted,
             on_omitted_filters=omitted_filters,
+            scan_details_description=_env_bool("MOCK_SCAN_DETAILS_DESCRIPTION", False),
+            scan_update_echo=_env_scan_update_echo(),
             lowercase_category_names=_env_bool("MOCK_LOWERCASE_CATEGORY_NAMES", False),
             reject_unknown_fields=_env_bool("MOCK_REJECT_UNKNOWN_FIELDS", False),
         ),
     )
+
+
+def _env_scan_update_echo() -> ScanUpdateEcho:
+    name = "MOCK_SCAN_UPDATE_ECHO"
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return ScanUpdateEcho.EMPTY
+    try:
+        return ScanUpdateEcho(raw)
+    except ValueError as exc:
+        valid = ", ".join(sorted(e.value for e in ScanUpdateEcho))
+        raise ValueError(f"{name} must be one of: {valid} (got {raw!r})") from exc
 
 
 def _env_on_omit(name: str) -> OnOmit:
