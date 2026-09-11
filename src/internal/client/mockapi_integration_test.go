@@ -3,6 +3,7 @@ package client_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -169,10 +170,13 @@ func TestMockScanShapesDiffer(t *testing.T) {
 		t.Fatalf("creating folder: %v", err)
 	}
 
+	const description = "daily scan on Tenable test devices"
+
 	created, err := c.CreateScan(ctx, client.ScanCreateRequest{
 		UUID: "template-uuid",
 		Settings: client.ScanSettings{
 			Name:        "Nightly",
+			Description: description,
 			FolderID:    folder.ID,
 			TextTargets: "10.0.0.0/24",
 			Emails:      "ops@example.com",
@@ -183,6 +187,9 @@ func TestMockScanShapesDiffer(t *testing.T) {
 	}
 	if created.Scan.TextTargets != "10.0.0.0/24" {
 		t.Errorf("create echoed text_targets = %q", created.Scan.TextTargets)
+	}
+	if created.Scan.Description == nil || *created.Scan.Description != description {
+		t.Errorf("create echoed description = %s, want %q", quoteOrNil(created.Scan.Description), description)
 	}
 
 	details, err := c.GetScan(ctx, created.Scan.ID)
@@ -203,6 +210,41 @@ func TestMockScanShapesDiffer(t *testing.T) {
 	if details.Info.TemplateUUID != "template-uuid" {
 		t.Errorf("scanner_name = %q", details.Info.TemplateUUID)
 	}
+
+	// The details endpoint does not report a description at all. Whether it is
+	// absent (live behaviour, and the mock's default) or present because
+	// MOCK_SCAN_DETAILS_DESCRIPTION is on, it must never come back as "" for a
+	// scan that has one: that is the reading which made the provider report
+	// every described scan as wiped.
+	if got := details.Info.Description; got != nil && *got != description {
+		t.Errorf("details reported description = %q, want %q or nothing at all", *got, description)
+	}
+
+	// The update echo is optional -- several tenants answer with no body -- but
+	// when it is there it is the only place a description comes back from.
+	updated, err := c.UpdateScan(ctx, created.Scan.ID, client.ScanUpdateRequest{
+		Settings: client.ScanSettings{
+			Name:        "Nightly",
+			Description: description,
+			FolderID:    folder.ID,
+			TextTargets: "10.0.0.0/24",
+		},
+	})
+	if err != nil {
+		t.Fatalf("updating scan: %v", err)
+	}
+	if updated.Scan != nil {
+		if got := updated.Scan.Description; got != nil && *got != description {
+			t.Errorf("update echoed description = %q, want %q", *got, description)
+		}
+	}
+}
+
+func quoteOrNil(p *string) string {
+	if p == nil {
+		return "nothing"
+	}
+	return fmt.Sprintf("%q", *p)
 }
 
 func TestMockAssetTagFiltersCatalogue(t *testing.T) {

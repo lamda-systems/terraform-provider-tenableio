@@ -113,10 +113,13 @@ worth remembering when a test fails against it:
 Where the docs genuinely leave a behaviour unresolved, the mock does not guess:
 it implements the conservative reading and exposes the alternative as an
 environment variable (`MOCK_OMITTED_DESCRIPTION`, `MOCK_OMITTED_FILTERS`,
-`MOCK_LOWERCASE_CATEGORY_NAMES`). **A correct provider passes under every
+`MOCK_LOWERCASE_CATEGORY_NAMES`, `MOCK_SCAN_DETAILS_DESCRIPTION`,
+`MOCK_SCAN_UPDATE_ECHO`). **A correct provider passes under every
 combination** — testing one setting proves nothing. `MOCK_OMITTED_DESCRIPTION=preserves`
 and `MOCK_LOWERCASE_CATEGORY_NAMES=1` reproduce the "Provider produced
-inconsistent result after apply" failures on `.description` and `.name`.
+inconsistent result after apply" failures on `.description` and `.name`; the two
+scan variables, left **off**, reproduce the live behaviour that a scan's
+description is never reported back (see Scans below).
 
 `src/internal/client/mockapi_integration_test.go` drives the real client
 against the mock to prove the two agree on the wire. It skips unless
@@ -213,6 +216,49 @@ Limits from the API: 40 rules per tag, 1,024 values per rule, 1 MB request body.
 
 **Unverified against a live tenant** (implemented from docs only) — confirm with `TF_ACC=1` before relying on them: static→dynamic conversion via update, the exact response echo format, and clear-on-omit semantics.
 
+## Scans: a Description That Is Never Read Back
+
+`GET /scans/{id}` describes a scan *result*, not the settings that created it,
+and its `info` object carries no `description` at all — the documented schema
+has no such field and live tenants do not send one. The description is therefore
+effectively write-only:
+
+| | Reports `description`? |
+|---|---|
+| `POST /scans` → `{"scan": {...}}` | yes |
+| `PUT /scans/{id}` | only when it answers with a body, and then as a **bare** object, not wrapped in `"scan"` |
+| `GET /scans/{id}` → `{"info": {...}}` | **no** |
+| `GET /scans` list item | no |
+
+This produced a production failure worth not repeating. The old code read
+`info.description` into a plain `string`, so an absent key became `""`:
+`Read` wiped the description out of state on every refresh, the next plan
+proposed restoring the configured text, and the `Update` that followed then
+compared its own plan against `info.description` — `""` again — and aborted with
+*"Tenable.io stored description as "" but the configuration asked for …"*. The
+apply could never succeed, and nothing on screen pointed at the read.
+
+What the code does now, and why each piece is load-bearing:
+
+- `ScanDetail.Description` and `ScanInfo.Description` are `*string`. **nil means
+  "the response did not carry the field", which is not the same as `""`.** Any
+  field whose response schema is narrower than the request schema needs this;
+  the rule in reverse is that a plain `string` asserts the API always reports it.
+- `readReportedString` in [helpers.go](src/internal/resources/helpers.go) keeps
+  the existing state value when the API reports nothing. It is the counterpart to
+  `readOptionalString`, which is for fields that do come back and where empty
+  means empty.
+- `requireEcho` runs on the description only when some response actually carried
+  one: the `PUT` echo first (`UpdateScan` returns it; `Scan` is nil for an empty
+  body), then the details response. When neither does, the description is simply
+  unverifiable and state keeps the planned value — which is what was sent.
+- The cost is accepted deliberately: an out-of-band description edit is not
+  detected, and an imported scan starts with `""` so the first plan proposes
+  writing the configured text back. `GET /editor/scan/{id}` does report the
+  stored description (under `settings.basic.inputs[]`, keyed by `id`) and would
+  restore drift detection at the price of a second call per read; it is not
+  wired up.
+
 ## Reconciling API Responses with the Plan
 
 Terraform requires the value applied to equal the value planned for every
@@ -235,6 +281,17 @@ Three rules follow, and all three are load-bearing:
    proposes the same change on every run and never settles, with nothing on
    screen explaining why.
 
+   **The message is a diagnostic channel, not just a complaint.** On a
+   production machine, logs often cannot be collected and the apply command
+   cannot be changed, so the error text on screen is the only thing that comes
+   back. `requireEcho` therefore takes optional notes, and `echoSource` builds
+   one from three things the operator cannot otherwise see: the exact URL that
+   answered, the keys that object carried (`PresentKeys`, recorded by the
+   scan unmarshalers — key names only, never values), and whether
+   `HTTP(S)_PROXY` routes that URL through a proxy. Those distinguish a
+   normalising tenant from a gateway, a stub, or a `base_url` pointing
+   somewhere unexpected — all of which present identically as "stored `""`".
+
 3. **Whitespace is rejected during validation.** `NoSurroundingWhitespace()` in
    [validators.go](src/internal/resources/validators.go) goes on every string
    attribute sent to Tenable.io, which trims these fields server-side. Silent
@@ -242,8 +299,12 @@ Three rules follow, and all three are load-bearing:
    attribute, and most of these are Required. Rejecting at validate time also
    catches it before any API call.
 
-Two related traps:
+Three related traps:
 
+- **A field the API accepts on write but does not return on read must not be
+  mapped as if `""` meant empty.** Decode it as a `*string` and keep state when
+  it is nil, or the provider invents a change on every refresh and then fails
+  verifying an echo that was never sent — see Scans above.
 - **An Optional attribute the server populates must also be Computed.**
   Otherwise the value the API chose sits in state against a null configuration
   and diffs forever. `launch` on `tenableio_scan` is the worked example.
@@ -265,7 +326,7 @@ to detect out-of-band deletion.
 
 `qa/` runs real Terraform against the mock. `./qa/run.sh` builds the provider,
 points Terraform at it with `dev_overrides` (no registry, no `terraform init`),
-and drives two stacks through apply → re-plan → re-apply → destroy under three
+and drives two stacks through apply → re-plan → re-apply → destroy under four
 mock profiles. Details in [qa/README.md](qa/README.md).
 
 The assertion that earns its keep is **the second plan being empty**: that is

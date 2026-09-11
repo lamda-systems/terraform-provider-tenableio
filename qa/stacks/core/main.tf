@@ -85,15 +85,23 @@ locals {
   scanner_id = data.tenableio_scanners.all.scanners[0].id
 }
 
+# A described scan is the case that broke in production: GET /scans/{id} does
+# not report a description, so a provider that reads its state back from there
+# sees "" and proposes restoring the text on every plan -- and the update that
+# follows cannot verify its own echo either. The second plan being empty is what
+# proves that is fixed.
 resource "tenableio_scan" "ondemand" {
   template_uuid = "893d91d1-5440-4f8c-9a6b-b50cfba86652d24bd260ef5f9e66"
   name          = "qa-ondemand"
+  description   = "daily scan on Tenable test devices"
   text_targets  = "192.0.2.1-192.0.2.255"
   folder_id     = tenableio_folder.qa.id
   scanner_id    = local.scanner_id
   emails        = "qa@example.com"
 }
 
+# No description: pins the "" default end to end, next to the described scan
+# above. Both have to settle.
 resource "tenableio_scan" "weekly" {
   template_uuid    = "329692d8-ea42-4e96-acd6-7da6c3571c27d24bd260ef5f9e66"
   name             = "qa-weekly"
@@ -187,4 +195,13 @@ output "minimal_policy_visibility" {
 
 output "minimal_policy_description" {
   value = tenableio_policy.minimal.description
+}
+
+# The description the scan details endpoint never reports back.
+output "ondemand_scan_description" {
+  value = tenableio_scan.ondemand.description
+}
+
+output "weekly_scan_description" {
+  value = tenableio_scan.weekly.description
 }

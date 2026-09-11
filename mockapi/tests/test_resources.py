@@ -250,6 +250,26 @@ def test_scan_get_returns_the_renamed_info_shape(client: TestClient) -> None:
     assert "emails" not in info
 
 
+def test_scan_get_does_not_report_the_description(client: TestClient) -> None:
+    """The field the create response echoes is missing from the details one.
+
+    Live Tenable.io omits it, so anything that reads a scan's description back
+    from this endpoint sees nothing -- not an empty description, *nothing*. The
+    mock including it is what let a provider bug reach production.
+    """
+    scan = make_scan(client, description="daily scan on test devices")
+    assert scan["description"] == "daily scan on test devices"
+
+    info = client.get(f"/scans/{scan['id']}", headers=AUTH).json()["info"]
+    assert "description" not in info
+
+
+def test_scan_details_description_quirk_reports_it(client_describing_scans: TestClient) -> None:
+    scan = make_scan(client_describing_scans, description="daily scan on test devices")
+    info = client_describing_scans.get(f"/scans/{scan['id']}", headers=AUTH).json()["info"]
+    assert info["description"] == "daily scan on test devices"
+
+
 def test_scan_list_filters_by_folder(client: TestClient) -> None:
     folder_id = client.post("/folders", json={"name": "Terraform"}, headers=AUTH).json()["id"]
     make_scan(client, name="In folder", folder_id=folder_id)
@@ -272,6 +292,29 @@ def test_scan_update_returns_an_empty_body(client: TestClient) -> None:
     assert updated.status_code == 200
     assert updated.content == b""
     assert client.get(f"/scans/{scan['id']}", headers=AUTH).json()["info"]["name"] == "Renamed"
+
+
+def test_scan_update_echo_quirk_returns_the_bare_object(
+    client_echoing_scan_updates: TestClient,
+) -> None:
+    """The documented update response, and the only one that reports description.
+
+    Bare, not wrapped in ``"scan"``: the create response wraps, this one does
+    not, and a provider that assumes one shape for both reads nothing back.
+    """
+    scan = make_scan(client_echoing_scan_updates, description="first")
+    updated = client_echoing_scan_updates.put(
+        f"/scans/{scan['id']}",
+        json={"settings": {"name": "Renamed", "description": "second", "enabled": False}},
+        headers=AUTH,
+    )
+    assert updated.status_code == 200
+
+    body = updated.json()
+    assert "scan" not in body
+    assert body["id"] == scan["id"]
+    assert body["name"] == "Renamed"
+    assert body["description"] == "second"
 
 
 def test_scan_rejects_dangling_references(client: TestClient) -> None:

@@ -9,8 +9,19 @@ and the divergence is faithful:
   target list is ``targets`` rather than ``text_targets``, the recipient list is
   ``notification_email_address`` rather than ``emails``, and the template is
   reported under ``scanner_name``.
+* ``GET /scans/{id}`` does **not** report ``description`` at all. It describes a
+  scan result rather than the settings that were submitted, and the documented
+  ``info`` schema has no such field. The mock used to include one; that single
+  courtesy hid a production bug, because a provider can read state back from
+  this endpoint, find ``""``, and conclude the description was wiped. Turn
+  ``MOCK_SCAN_DETAILS_DESCRIPTION`` on to get the forgiving shape back.
 * ``GET /scans`` returns a slimmer list item again.
-* ``PUT /scans/{id}`` returns an empty body.
+* ``PUT /scans/{id}`` returns an empty body by default. With
+  ``MOCK_SCAN_UPDATE_ECHO=object`` it returns the scan object *bare* -- the
+  documented shape, and notably not wrapped in ``"scan"`` the way the create
+  response is. That echo is the only place an update's description comes back
+  from, so a provider has to verify what it wrote when the body is there and
+  accept not being able to when it is not.
 
 Anything that flattens these into one shape is not reproducing the API.
 """
@@ -20,7 +31,9 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import JSONResponse
 
+from ..config import ScanUpdateEcho
 from ..errors import bad_request, not_found
 from ..models import ScanCreate, ScanSettings, ScanUpdate
 from ..store import Store, unix_seconds
@@ -93,13 +106,15 @@ def _detail_payload(scan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _info_payload(scan: dict[str, Any]) -> dict[str, Any]:
-    """The renamed shape ``GET /scans/{id}`` wraps in ``{"info": ...}``."""
-    return {
+def _info_payload(scan: dict[str, Any], *, describe: bool = False) -> dict[str, Any]:
+    """The renamed shape ``GET /scans/{id}`` wraps in ``{"info": ...}``.
+
+    ``describe`` adds the ``description`` key that live Tenable.io leaves out.
+    """
+    info: dict[str, Any] = {
         "object_id": scan["id"],
         "uuid": scan["uuid"],
         "name": scan["name"],
-        "description": scan["description"],
         "policy_id": scan["policy_id"],
         "folder_id": scan["folder_id"],
         "scanner_id": scan["scanner_id"],
@@ -117,6 +132,9 @@ def _info_payload(scan: dict[str, Any]) -> dict[str, Any]:
         "scan_type": scan["type"],
         "scanner_name": scan["template_uuid"],
     }
+    if describe:
+        info["description"] = scan["description"]
+    return info
 
 
 def _list_payload(scan: dict[str, Any]) -> dict[str, Any]:
@@ -184,9 +202,14 @@ async def list_scans(request: Request, folder_id: int | None = None) -> dict[str
 
 @router.get("/scans/{scan_id}")
 async def get_scan(scan_id: int, request: Request) -> dict[str, Any]:
-    store = get_store(request)
+    store, settings = get_store(request), get_settings(request)
     with store.lock:
-        return {"info": _info_payload(_find(store, scan_id))}
+        return {
+            "info": _info_payload(
+                _find(store, scan_id),
+                describe=settings.quirks.scan_details_description,
+            )
+        }
 
 
 @router.put("/scans/{scan_id}")
@@ -223,6 +246,12 @@ async def update_scan(scan_id: int, body: ScanUpdate, request: Request) -> Respo
         if body.uuid:
             scan["template_uuid"] = body.uuid
         scan["last_modification_date"] = unix_seconds(store.now())
+
+        if settings.quirks.scan_update_echo is ScanUpdateEcho.OBJECT:
+            # Bare, not wrapped in "scan": the update response and the create
+            # response disagree about that in the docs, and reproducing only the
+            # create shape would let a provider hard-code the wrong one.
+            return JSONResponse(_detail_payload(scan))
     return Response(status_code=200)
 
 

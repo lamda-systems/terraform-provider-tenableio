@@ -111,6 +111,30 @@ func (c *Client) Delete(ctx context.Context, path string) error {
 	return c.Do(ctx, http.MethodDelete, path, nil, nil)
 }
 
+// ProxyForURL reports the HTTP proxy the environment imposes on requests to
+// this client's base URL, or "" when none applies.
+//
+// The provider's HTTP client is the stock one, so it honours HTTP_PROXY,
+// HTTPS_PROXY and NO_PROXY through http.ProxyFromEnvironment. A hand-made
+// request from an API client or a browser usually does not read the same
+// variables, which makes "works by hand, fails from Terraform" a real and
+// otherwise invisible outcome. Naming the proxy in a diagnostic is how that gets
+// spotted on a machine whose logs cannot be collected.
+//
+// The result is redacted: a proxy URL carrying credentials prints its password
+// as "xxxxx".
+func (c *Client) ProxyForURL() string {
+	req, err := http.NewRequest(http.MethodGet, c.BaseURL, nil)
+	if err != nil {
+		return ""
+	}
+	proxy, err := http.ProxyFromEnvironment(req)
+	if err != nil || proxy == nil {
+		return ""
+	}
+	return proxy.Redacted()
+}
+
 type APIError struct {
 	StatusCode int
 	Body       string
