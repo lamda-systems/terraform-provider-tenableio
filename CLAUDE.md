@@ -228,7 +228,6 @@ effectively write-only:
 | `POST /scans` → `{"scan": {...}}` | yes |
 | `PUT /scans/{id}` | only when it answers with a body, and then as a **bare** object, not wrapped in `"scan"` |
 | `GET /scans/{id}` → `{"info": {...}}` | **no** |
-| `GET /scans` list item | no |
 
 This produced a production failure worth not repeating. The old code read
 `info.description` into a plain `string`, so an absent key became `""`:
