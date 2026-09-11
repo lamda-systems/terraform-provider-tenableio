@@ -9,12 +9,15 @@ and the divergence is faithful:
   target list is ``targets`` rather than ``text_targets``, the recipient list is
   ``notification_email_address`` rather than ``emails``, and the template is
   reported under ``scanner_name``.
-* ``GET /scans/{id}`` does **not** report ``description`` at all. It describes a
-  scan result rather than the settings that were submitted, and the documented
-  ``info`` schema has no such field. The mock used to include one; that single
-  courtesy hid a production bug, because a provider can read state back from
-  this endpoint, find ``""``, and conclude the description was wiped. Turn
-  ``MOCK_SCAN_DETAILS_DESCRIPTION`` on to get the forgiving shape back.
+* ``GET /scans/{id}`` does **not** report ``description``,
+  ``scan_time_window``, ``creation_date`` or ``last_modification_date``. It
+  describes a scan result rather than the settings that were submitted, and the
+  documented ``info`` schema carries neither those settings nor the audit
+  timestamps. The mock used to include them all; that courtesy hid two
+  production bugs, because a provider can read state back from this endpoint,
+  find ``""`` or ``0``, and conclude the value was wiped -- which then either
+  fails the apply or re-proposes the configured value on every plan.
+  ``MOCK_SCAN_DETAILS_SETTINGS=report`` gets the forgiving shape back.
 * ``GET /scans`` returns a slimmer list item again.
 * ``PUT /scans/{id}`` returns an empty body by default. With
   ``MOCK_SCAN_UPDATE_ECHO=object`` it returns the scan object *bare* -- the
@@ -33,7 +36,7 @@ from typing import Any
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
-from ..config import ScanUpdateEcho
+from ..config import DetailsSettings, ScanUpdateEcho
 from ..errors import bad_request, not_found
 from ..models import ScanCreate, ScanSettings, ScanUpdate
 from ..store import Store, unix_seconds
@@ -106,10 +109,11 @@ def _detail_payload(scan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _info_payload(scan: dict[str, Any], *, describe: bool = False) -> dict[str, Any]:
+def _info_payload(scan: dict[str, Any], *, settings: bool = False) -> dict[str, Any]:
     """The renamed shape ``GET /scans/{id}`` wraps in ``{"info": ...}``.
 
-    ``describe`` adds the ``description`` key that live Tenable.io leaves out.
+    ``settings`` adds the submitted settings and audit timestamps that live
+    Tenable.io leaves out of this response entirely.
     """
     info: dict[str, Any] = {
         "object_id": scan["id"],
@@ -125,15 +129,15 @@ def _info_payload(scan: dict[str, Any], *, describe: bool = False) -> dict[str, 
         "notification_email_address": scan["emails"],
         "enabled": scan["enabled"],
         "launch": scan["launch"],
-        "scan_time_window": scan["scan_time_window"],
         "status": scan["status"],
-        "creation_date": scan["creation_date"],
-        "last_modification_date": scan["last_modification_date"],
         "scan_type": scan["type"],
         "scanner_name": scan["template_uuid"],
     }
-    if describe:
+    if settings:
         info["description"] = scan["description"]
+        info["scan_time_window"] = scan["scan_time_window"]
+        info["creation_date"] = scan["creation_date"]
+        info["last_modification_date"] = scan["last_modification_date"]
     return info
 
 
@@ -207,7 +211,7 @@ async def get_scan(scan_id: int, request: Request) -> dict[str, Any]:
         return {
             "info": _info_payload(
                 _find(store, scan_id),
-                describe=settings.quirks.scan_details_description,
+                settings=settings.quirks.scan_details_settings is DetailsSettings.REPORT,
             )
         }
 

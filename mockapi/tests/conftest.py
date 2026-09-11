@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tenableio_mock.app import create_app
-from tenableio_mock.config import OnOmit, Quirks, ScanUpdateEcho, Settings
+from tenableio_mock.config import DetailsSettings, OnOmit, Quirks, ScanUpdateEcho, Settings
 
 #: A syntactically valid header. The default Settings accepts any credentials,
 #: so the values only matter in the tests that pin them.
@@ -31,9 +31,9 @@ def client() -> TestClient:
 
 @pytest.fixture
 def client_describing_scans() -> TestClient:
-    """A server whose ``GET /scans/{id}`` reports a description. Not the default:
-    live Tenable.io leaves the field out entirely."""
-    return make_client(scan_details_description=True)
+    """A server whose ``GET /scans/{id}`` echoes the settings it was sent. Not
+    the default: live Tenable.io leaves them out of that response entirely."""
+    return make_client(scan_details_settings=DetailsSettings.REPORT)
 
 
 @pytest.fixture
@@ -59,4 +59,5 @@ __all__ = [
     "category",
     "OnOmit",
     "ScanUpdateEcho",
+    "DetailsSettings",
 ]

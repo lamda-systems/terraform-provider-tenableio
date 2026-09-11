@@ -7,7 +7,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// readOptionalString maps an optional string from an API response into state.
+// readOptionalString maps an optional string from an API response into state,
+// for a response that always carries the field. When the field may be absent,
+// use readReportedString instead: it takes a pointer so that "not reported" and
+// "reported empty" stay apart.
 // A field already present in state, or one the API reports a value for, takes
 // the API value; otherwise it stays null so an unset attribute does not drift.
 //
@@ -26,29 +29,48 @@ func readOptionalString(current types.String, apiValue string) types.String {
 
 // readReportedString maps a string the API may not report at all.
 //
-// A nil apiValue means the response did not carry the field -- not that the
-// stored value is empty -- so state keeps what it already holds. Writing "" in
-// that case invents a change nobody made: the next plan proposes restoring the
-// configured text, the update that follows cannot verify its own echo either,
-// and the resource never settles.
+// Two rules, and each one exists because of a bug it prevents:
+//
+//  1. nil means the response did not carry the field -- not that the stored
+//     value is empty -- so state keeps what it already holds. Writing "" there
+//     invents a change nobody made, and the resource never settles.
+//  2. An empty report onto an attribute that is currently null leaves it null,
+//     so an unset Optional attribute does not acquire "" and diff forever. This
+//     is what makes import work.
 //
 // Use it wherever the response schema is narrower than the request schema, i.e.
-// where the API accepts a field on write but does not return it on read.
-// readOptionalString is for the other case, where the field comes back
-// reliably and an empty value means empty.
+// where the API accepts a field on write but may not return it on read.
+// readOptionalString is the same thing for a response that always carries the
+// field, where empty genuinely means empty.
 func readReportedString(current types.String, apiValue *string) types.String {
 	if apiValue == nil {
+		return current
+	}
+	if current.IsNull() && *apiValue == "" {
 		return current
 	}
 	return types.StringValue(*apiValue)
 }
 
-// readOptionalInt64 is readOptionalString for int64, with the same caveat.
-func readOptionalInt64(current types.Int64, apiValue int) types.Int64 {
-	if !current.IsNull() || apiValue != 0 {
-		return types.Int64Value(int64(apiValue))
+// readReportedInt64 is readReportedString for int64, with the same two rules.
+func readReportedInt64(current types.Int64, apiValue *int) types.Int64 {
+	if apiValue == nil {
+		return current
 	}
-	return types.Int64Null()
+	if current.IsNull() && *apiValue == 0 {
+		return current
+	}
+	return types.Int64Value(int64(*apiValue))
+}
+
+// readReportedBool is readReportedString for bool, minus the second rule: false
+// is a meaningful value rather than an absent one, so a reported false is
+// adopted even against a null attribute.
+func readReportedBool(current types.Bool, apiValue *bool) types.Bool {
+	if apiValue == nil {
+		return current
+	}
+	return types.BoolValue(*apiValue)
 }
 
 // requireEcho fails the apply when Tenable.io stored a value different from the

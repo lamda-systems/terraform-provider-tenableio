@@ -113,13 +113,13 @@ worth remembering when a test fails against it:
 Where the docs genuinely leave a behaviour unresolved, the mock does not guess:
 it implements the conservative reading and exposes the alternative as an
 environment variable (`MOCK_OMITTED_DESCRIPTION`, `MOCK_OMITTED_FILTERS`,
-`MOCK_LOWERCASE_CATEGORY_NAMES`, `MOCK_SCAN_DETAILS_DESCRIPTION`,
+`MOCK_LOWERCASE_CATEGORY_NAMES`, `MOCK_SCAN_DETAILS_SETTINGS`,
 `MOCK_SCAN_UPDATE_ECHO`). **A correct provider passes under every
 combination** — testing one setting proves nothing. `MOCK_OMITTED_DESCRIPTION=preserves`
 and `MOCK_LOWERCASE_CATEGORY_NAMES=1` reproduce the "Provider produced
 inconsistent result after apply" failures on `.description` and `.name`; the two
-scan variables, left **off**, reproduce the live behaviour that a scan's
-description is never reported back (see Scans below).
+scan variables, left at their defaults, reproduce the live behaviour that a scan
+details response echoes none of the settings it was sent (see Scans below).
 
 `src/internal/client/mockapi_integration_test.go` drives the real client
 against the mock to prove the two agree on the wire. It skips unless
@@ -216,47 +216,60 @@ Limits from the API: 40 rules per tag, 1,024 values per rule, 1 MB request body.
 
 **Unverified against a live tenant** (implemented from docs only) — confirm with `TF_ACC=1` before relying on them: static→dynamic conversion via update, the exact response echo format, and clear-on-omit semantics.
 
-## Scans: a Description That Is Never Read Back
+## Scans: Settings That Are Never Read Back
 
-`GET /scans/{id}` describes a scan *result*, not the settings that created it,
-and its `info` object carries no `description` at all — the documented schema
-has no such field and live tenants do not send one. The description is therefore
-effectively write-only:
+`GET /scans/{id}` describes a scan *result*, not the settings that created it.
+Its `info` object carries neither those settings nor the audit timestamps, and
+two separate production failures came out of assuming otherwise. Confirmed
+absent against a live tenant: `description`, `scan_time_window`,
+`creation_date`, `last_modification_date`.
 
-| | Reports `description`? |
+| | Echoes the submitted settings? |
 |---|---|
 | `POST /scans` → `{"scan": {...}}` | yes |
 | `PUT /scans/{id}` | only when it answers with a body, and then as a **bare** object, not wrapped in `"scan"` |
 | `GET /scans/{id}` → `{"info": {...}}` | **no** |
 
-This produced a production failure worth not repeating. The old code read
-`info.description` into a plain `string`, so an absent key became `""`:
-`Read` wiped the description out of state on every refresh, the next plan
-proposed restoring the configured text, and the `Update` that followed then
-compared its own plan against `info.description` — `""` again — and aborted with
-*"Tenable.io stored description as "" but the configuration asked for …"*. The
-apply could never succeed, and nothing on screen pointed at the read.
+The old code read those fields into plain `string`/`int`, so an absent key became
+`""` or `0`, and every refresh invented a change:
+
+- **description** — `Read` wiped it from state, the next plan proposed restoring
+  the configured text, and the `Update` that followed compared its own plan
+  against `info.description` — `""` again — and aborted with *"Tenable.io stored
+  description as "" but the configuration asked for …"*. The apply could never
+  succeed, and nothing on screen pointed at the read.
+- **scan_time_window** — the same mechanism with a quieter symptom: `180 -> 0` on
+  refresh, `0 -> 180` on plan, forever. The Computed attributes alongside it
+  (`status`, `creation_date`, `last_modification_date`) then showed as "known
+  after apply" on every run, which is a consequence of the update rather than
+  drift of their own.
 
 What the code does now, and why each piece is load-bearing:
 
-- `ScanDetail.Description` and `ScanInfo.Description` are `*string`. **nil means
-  "the response did not carry the field", which is not the same as `""`.** Any
-  field whose response schema is narrower than the request schema needs this;
-  the rule in reverse is that a plain `string` asserts the API always reports it.
-- `readReportedString` in [helpers.go](src/internal/resources/helpers.go) keeps
-  the existing state value when the API reports nothing. It is the counterpart to
-  `readOptionalString`, which is for fields that do come back and where empty
-  means empty.
+- Every `ScanInfo` field the resource maps into state is a pointer, and so are
+  the `ScanDetail` fields that settle Computed attributes. **nil means "the
+  response did not carry the field", which is not the same as the zero value.**
+  Only `object_id` and `name` stay plain. The rule in reverse: a plain field
+  asserts the API always reports it.
+- The `readReported*` family in [helpers.go](src/internal/resources/helpers.go)
+  keeps the existing state value when the API reports nothing, and leaves a null
+  attribute null when the report is empty so an unset Optional does not acquire
+  `""` and diff forever. It is the counterpart to `readOptional*`, for responses
+  that always carry the field and where empty means empty.
+- Computed attributes still have to be settled with something *known*: create
+  starts from null, so an unreported `status` is null rather than a fabricated
+  `""`; update starts from the prior state value, because a stale
+  `last_modification_date` is invisible to Terraform while a zero one is a
+  visible lie.
 - `requireEcho` runs on the description only when some response actually carried
   one: the `PUT` echo first (`UpdateScan` returns it; `Scan` is nil for an empty
   body), then the details response. When neither does, the description is simply
   unverifiable and state keeps the planned value — which is what was sent.
-- The cost is accepted deliberately: an out-of-band description edit is not
-  detected, and an imported scan starts with `""` so the first plan proposes
-  writing the configured text back. `GET /editor/scan/{id}` does report the
-  stored description (under `settings.basic.inputs[]`, keyed by `id`) and would
-  restore drift detection at the price of a second call per read; it is not
-  wired up.
+- The cost is accepted deliberately: an out-of-band edit to a field this endpoint
+  does not report goes undetected, and an imported scan starts without those
+  values. `GET /editor/scan/{id}` does report the stored settings (under
+  `settings.basic.inputs[]`, keyed by `id`) and would restore drift detection at
+  the price of a second call per read; it is not wired up.
 
 ## Reconciling API Responses with the Plan
 
@@ -301,14 +314,15 @@ Three rules follow, and all three are load-bearing:
 Three related traps:
 
 - **A field the API accepts on write but does not return on read must not be
-  mapped as if `""` meant empty.** Decode it as a `*string` and keep state when
-  it is nil, or the provider invents a change on every refresh and then fails
-  verifying an echo that was never sent — see Scans above.
+  mapped as if the zero value meant empty.** Decode it as a pointer and keep
+  state when it is nil, or the provider invents a change on every refresh:
+  failing the apply where an echo check covers the field, and looping between the
+  configured value and zero where one does not. See Scans above.
 - **An Optional attribute the server populates must also be Computed.**
   Otherwise the value the API chose sits in state against a null configuration
   and diffs forever. `launch` on `tenableio_scan` is the worked example.
-  `readOptionalString`/`readOptionalInt64` adopt API values so import works, so
-  they are only safe on Optional+Computed attributes.
+  `readOptionalString` and the `readReported*` family adopt API values so import
+  works, so they are only safe on Optional+Computed attributes.
 - **A request field backing an attribute with a `Default` must not be tagged
   `omitempty`.** The schema promises a value is always present, so eliding it
   when it is empty means the API never learns the user cleared it. `omitempty`

@@ -43,10 +43,11 @@ STACKS=(tags core)
 #   preserve   updates that omit a field leave the stored value alone
 #   normalise  the API folds category names to lower case
 #   echo       the scan endpoints report more than live Tenable.io does: the
-#              details response carries a description and the update answers
-#              with the scan object. The other three run the faithful shape,
-#              where a scan's description is never reported back at all, so the
-#              pair covers both readings.
+#              details response echoes the submitted settings and the update
+#              answers with the scan object. The other three run the faithful
+#              shape, where a scan's description, scan_time_window and
+#              timestamps are never reported back at all, so the pair covers
+#              both readings.
 PROFILES=(strict preserve normalise echo)
 
 # Stack/profile pairs where the apply is expected to stop with a provider error,
@@ -73,7 +74,7 @@ profile_env() {
     strict)    echo "" ;;
     preserve)  echo "MOCK_OMITTED_DESCRIPTION=preserves MOCK_OMITTED_FILTERS=preserves" ;;
     normalise) echo "MOCK_LOWERCASE_CATEGORY_NAMES=1" ;;
-    echo)      echo "MOCK_SCAN_DETAILS_DESCRIPTION=1 MOCK_SCAN_UPDATE_ECHO=object" ;;
+    echo)      echo "MOCK_SCAN_DETAILS_SETTINGS=report MOCK_SCAN_UPDATE_ECHO=object" ;;
     *) echo "unknown profile: $1" >&2; exit 2 ;;
   esac
 }
@@ -176,11 +177,11 @@ verify_quirks() {
     fail "could not read $MOCK_URL/__mock/settings"; return 1; }
 
   local want_desc=clears want_filters=clears want_lower=False
-  local want_scan_desc=False want_scan_echo=empty
+  local want_scan_settings=omit want_scan_echo=empty
   [[ "$env_vars" == *"MOCK_OMITTED_DESCRIPTION=preserves"* ]]  && want_desc=preserves
   [[ "$env_vars" == *"MOCK_OMITTED_FILTERS=preserves"* ]]      && want_filters=preserves
   [[ "$env_vars" == *"MOCK_LOWERCASE_CATEGORY_NAMES=1"* ]]     && want_lower=True
-  [[ "$env_vars" == *"MOCK_SCAN_DETAILS_DESCRIPTION=1"* ]]     && want_scan_desc=True
+  [[ "$env_vars" == *"MOCK_SCAN_DETAILS_SETTINGS=report"* ]]    && want_scan_settings=report
   [[ "$env_vars" == *"MOCK_SCAN_UPDATE_ECHO=object"* ]]        && want_scan_echo=object
 
   local got
@@ -188,9 +189,9 @@ verify_quirks() {
 import json, sys
 q = json.load(sys.stdin)["quirks"]
 print(q["on_omitted_description"], q["on_omitted_filters"], q["lowercase_category_names"],
-      q["scan_details_description"], q["scan_update_echo"])')"
+      q["scan_details_settings"], q["scan_update_echo"])')"
 
-  if [[ "$got" != "$want_desc $want_filters $want_lower $want_scan_desc $want_scan_echo" ]]; then
+  if [[ "$got" != "$want_desc $want_filters $want_lower $want_scan_settings $want_scan_echo" ]]; then
     fail "mock quirks are '$got', expected '$want_desc $want_filters $want_lower $want_scan_desc $want_scan_echo'"
     fail "a server from an earlier run is probably still on port $MOCK_PORT"
     return 1
@@ -328,6 +329,9 @@ check_outputs() {
       expect minimal_policy_description ""
       expect ondemand_scan_description "daily scan on Tenable test devices"
       expect weekly_scan_description ""
+      expect weekly_scan_time_window 180
+      expect weekly_scan_launch WEEKLY
+      expect weekly_scan_timezone US/Mountain
       ;;
   esac
   (( failed == 0 )) && pass "outputs match"
