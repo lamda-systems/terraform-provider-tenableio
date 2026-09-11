@@ -192,7 +192,7 @@ print(q["on_omitted_description"], q["on_omitted_filters"], q["lowercase_categor
       q["scan_details_settings"], q["scan_update_echo"])')"
 
   if [[ "$got" != "$want_desc $want_filters $want_lower $want_scan_settings $want_scan_echo" ]]; then
-    fail "mock quirks are '$got', expected '$want_desc $want_filters $want_lower $want_scan_desc $want_scan_echo'"
+    fail "mock quirks are '$got', expected '$want_desc $want_filters $want_lower $want_scan_settings $want_scan_echo'"
     fail "a server from an earlier run is probably still on port $MOCK_PORT"
     return 1
   fi
