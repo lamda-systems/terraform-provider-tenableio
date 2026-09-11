@@ -35,6 +35,20 @@ class OnOmit(str, Enum):
     PRESERVES = "preserves"
 
 
+class DetailsSettings(str, Enum):
+    """Whether ``GET /scans/{id}`` echoes back the settings it was sent.
+
+    The documented ``info`` object does not contain them, and neither do live
+    responses -- confirmed for ``description``, ``scan_time_window``,
+    ``creation_date`` and ``last_modification_date``. A provider cannot treat a
+    field this endpoint omits as one the tenant cleared, so the mock defaults to
+    :attr:`OMIT` and offers the opposite for providers that must tolerate both.
+    """
+
+    OMIT = "omit"
+    REPORT = "report"
+
+
 class ScanUpdateEcho(str, Enum):
     """What ``PUT /scans/{id}`` answers with.
 
@@ -79,16 +93,19 @@ class Quirks:
     #: state fails its apply when this is on.
     lowercase_category_names: bool = False
 
-    #: Report ``description`` in the ``info`` object of ``GET /scans/{id}``.
+    #: Report the submitted settings in the ``info`` object of
+    #: ``GET /scans/{id}``: ``description``, ``scan_time_window``,
+    #: ``creation_date`` and ``last_modification_date``.
     #:
-    #: Live Tenable.io does not: the scan details endpoint describes a scan
-    #: *result*, and its documented ``info`` schema has no ``description`` at
-    #: all. The mock used to echo one, which is why a provider that read its
-    #: state back from that endpoint passed here and then reported every
-    #: described scan as having had its description wiped in production. Off is
-    #: the faithful setting; turn it on only to prove the provider also accepts
-    #: a tenant that does report it.
-    scan_details_description: bool = False
+    #: Live Tenable.io reports none of them. The endpoint describes a scan
+    #: *result*, not the settings that created it, and its documented ``info``
+    #: schema carries neither those settings nor the audit timestamps. The mock
+    #: used to echo them all, which is why a provider that read its state back
+    #: from this endpoint passed here and then, in production, reported a
+    #: described scan as wiped and re-proposed a configured ``scan_time_window``
+    #: on every plan. ``omit`` is the faithful setting; ``report`` exists to
+    #: prove the provider also accepts a tenant that does send them.
+    scan_details_settings: DetailsSettings = DetailsSettings.OMIT
 
     #: What ``PUT /scans/{id}`` returns. See :class:`ScanUpdateEcho`.
     scan_update_echo: ScanUpdateEcho = ScanUpdateEcho.EMPTY
@@ -147,9 +164,8 @@ def settings_from_env(env: dict[str, str] | None = None) -> Settings:
         ``clears`` (default) or ``preserves``.
     ``MOCK_OMITTED_FILTERS``
         ``clears`` (default) or ``preserves``.
-    ``MOCK_SCAN_DETAILS_DESCRIPTION``
-        Report ``description`` on ``GET /scans/{id}``. Default off, which is
-        what live Tenable.io does.
+    ``MOCK_SCAN_DETAILS_SETTINGS``
+        ``omit`` (default, what live Tenable.io does) or ``report``.
     ``MOCK_SCAN_UPDATE_ECHO``
         ``empty`` (default) or ``object``.
     ``MOCK_LOWERCASE_CATEGORY_NAMES``
@@ -178,12 +194,24 @@ def settings_from_env(env: dict[str, str] | None = None) -> Settings:
         quirks=Quirks(
             on_omitted_description=omitted,
             on_omitted_filters=omitted_filters,
-            scan_details_description=_env_bool("MOCK_SCAN_DETAILS_DESCRIPTION", False),
+            scan_details_settings=_env_details_settings(),
             scan_update_echo=_env_scan_update_echo(),
             lowercase_category_names=_env_bool("MOCK_LOWERCASE_CATEGORY_NAMES", False),
             reject_unknown_fields=_env_bool("MOCK_REJECT_UNKNOWN_FIELDS", False),
         ),
     )
+
+
+def _env_details_settings() -> DetailsSettings:
+    name = "MOCK_SCAN_DETAILS_SETTINGS"
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return DetailsSettings.OMIT
+    try:
+        return DetailsSettings(raw)
+    except ValueError as exc:
+        valid = ", ".join(sorted(d.value for d in DetailsSettings))
+        raise ValueError(f"{name} must be one of: {valid} (got {raw!r})") from exc
 
 
 def _env_scan_update_echo() -> ScanUpdateEcho:

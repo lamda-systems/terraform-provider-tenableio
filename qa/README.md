@@ -39,20 +39,21 @@ behaviour production actually implements.
 | `strict` | defaults | Does the provider work against the conservative reading? |
 | `preserve` | `MOCK_OMITTED_DESCRIPTION=preserves`, `MOCK_OMITTED_FILTERS=preserves` | Does it survive an API that keeps fields left out of an update? |
 | `normalise` | `MOCK_LOWERCASE_CATEGORY_NAMES=1` | Does it cope with an API that rewrites what it was sent? |
-| `echo` | `MOCK_SCAN_DETAILS_DESCRIPTION=1`, `MOCK_SCAN_UPDATE_ECHO=object` | Does it cope with scan endpoints that report *more* than production does? |
+| `echo` | `MOCK_SCAN_DETAILS_SETTINGS=report`, `MOCK_SCAN_UPDATE_ECHO=object` | Does it cope with scan endpoints that report *more* than production does? |
 
 `preserve` is the one that used to break. A provider that declares `description`
 with a `""` default but serialises it with Go's `omitempty` never puts the key
 on the wire when a user clears it, so the server echoes the stale text back.
 
-`echo` is the inverse, and it is the one that caught a production failure. The
-other three profiles run the faithful scan shape, where `GET /scans/{id}` does
-not report a `description` at all and `PUT /scans/{id}` returns no body — so a
-described scan's text is written and never read back. A provider that reads
-`""` out of that silence wipes the value from its own state on every refresh;
-`tenableio_scan.ondemand` in the `core` stack is the case that pins it. Under
-`echo` both endpoints do report the description, and the same provider passes,
-which is exactly why the pair has to be run together.
+`echo` is the inverse, and it is the one that caught two production failures.
+The other three profiles run the faithful scan shape, where `GET /scans/{id}`
+reports neither the submitted settings (`description`, `scan_time_window`) nor
+the audit timestamps, and `PUT /scans/{id}` returns no body — so those values are
+written and never read back. A provider that reads `""` or `0` out of that
+silence wipes them from its own state on every refresh: `tenableio_scan.ondemand`
+pins the description case and `tenableio_scan.weekly` pins the
+`scan_time_window` one. Under `echo` both endpoints report everything, and the
+same provider passes, which is exactly why the pair has to be run together.
 
 ## Expected failures
 

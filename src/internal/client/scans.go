@@ -133,14 +133,24 @@ type ScanDetail struct {
 	PresentKeys []string `json:"-"`
 
 	ID   int    `json:"id"`
-	UUID string `json:"uuid"`
 	Name string `json:"name"`
 	// Description is a pointer so that "the response did not carry the field"
 	// stays distinguishable from "the response carried an empty string". Only
 	// the second can be compared with configuration; treating the first as ""
 	// is what made a tenant that omits the key look like one that wiped the
 	// text. See ScanInfo.Description.
+	//
+	// UUID, Status, Launch and the two timestamps are pointers for the same
+	// reason, from the other direction: the resource settles Computed attributes
+	// from them, and the documented create response carries neither status nor
+	// launch. A zero written into a Computed attribute cannot be told apart from
+	// one Tenable.io chose, so an absent field becomes a null attribute instead.
 	Description          *string `json:"description"`
+	UUID                 *string `json:"uuid"`
+	Status               *string `json:"status"`
+	Launch               *string `json:"launch"`
+	CreationDate         *int    `json:"creation_date"`
+	LastModificationDate *int    `json:"last_modification_date"`
 	PolicyID             int     `json:"policy_id"`
 	FolderID             int     `json:"folder_id"`
 	ScannerID            int     `json:"scanner_id"`
@@ -150,11 +160,7 @@ type ScanDetail struct {
 	Timezone             string  `json:"timezone"`
 	Emails               string  `json:"emails"`
 	Enabled              bool    `json:"enabled"`
-	Launch               string  `json:"launch"`
 	ScanTimeWindow       int     `json:"scan_time_window"`
-	Status               string  `json:"status"`
-	CreationDate         int     `json:"creation_date"`
-	LastModificationDate int     `json:"last_modification_date"`
 	Type                 string  `json:"type"`
 }
 
@@ -167,30 +173,36 @@ type ScanInfo struct {
 	PresentKeys []string `json:"-"`
 
 	ID   int    `json:"object_id"`
-	UUID string `json:"uuid"`
 	Name string `json:"name"`
-	// Description is absent from the documented info schema and from live
-	// responses: GET /scans/{id} reports a scan *result*, not the settings that
-	// were submitted. nil therefore means "unknown", and the provider must not
-	// compare it with configuration or write it over state -- doing so reported
-	// every described scan as having had its description wiped.
+
+	// Everything below is a pointer, and deliberately so. GET /scans/{id}
+	// describes a scan *result*: its documented info object carries neither the
+	// settings that were submitted nor the audit timestamps, and live tenants
+	// have been confirmed to omit description, scan_time_window, creation_date
+	// and last_modification_date. nil means "not reported", which is not the
+	// same as zero -- mapping an absent scan_time_window onto 0 made every plan
+	// propose the configured 180 again, so the resource never settled.
+	//
+	// Only object_id and name stay plain: the identifier the endpoint is keyed
+	// by, and the one field every response has been observed to carry.
+	UUID                 *string `json:"uuid"`
 	Description          *string `json:"description"`
-	PolicyID             int     `json:"policy_id"`
-	FolderID             int     `json:"folder_id"`
-	ScannerID            int     `json:"scanner_id"`
-	Targets              string  `json:"targets"`
-	Starttime            string  `json:"starttime"`
-	RRules               string  `json:"rrules"`
-	Timezone             string  `json:"timezone"`
-	Emails               string  `json:"notification_email_address"`
-	Enabled              bool    `json:"enabled"`
-	Launch               string  `json:"launch"`
-	ScanTimeWindow       int     `json:"scan_time_window"`
-	Status               string  `json:"status"`
-	CreationDate         int     `json:"creation_date"`
-	LastModificationDate int     `json:"last_modification_date"`
-	ScanType             string  `json:"scan_type"`
-	TemplateUUID         string  `json:"scanner_name"`
+	PolicyID             *int    `json:"policy_id"`
+	FolderID             *int    `json:"folder_id"`
+	ScannerID            *int    `json:"scanner_id"`
+	Targets              *string `json:"targets"`
+	Starttime            *string `json:"starttime"`
+	RRules               *string `json:"rrules"`
+	Timezone             *string `json:"timezone"`
+	Emails               *string `json:"notification_email_address"`
+	Enabled              *bool   `json:"enabled"`
+	Launch               *string `json:"launch"`
+	ScanTimeWindow       *int    `json:"scan_time_window"`
+	Status               *string `json:"status"`
+	CreationDate         *int    `json:"creation_date"`
+	LastModificationDate *int    `json:"last_modification_date"`
+	ScanType             *string `json:"scan_type"`
+	TemplateUUID         *string `json:"scanner_name"`
 }
 
 type ScansListResponse struct {

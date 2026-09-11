@@ -171,15 +171,17 @@ func TestMockScanShapesDiffer(t *testing.T) {
 	}
 
 	const description = "daily scan on Tenable test devices"
+	const scanTimeWindow = 180
 
 	created, err := c.CreateScan(ctx, client.ScanCreateRequest{
 		UUID: "template-uuid",
 		Settings: client.ScanSettings{
-			Name:        "Nightly",
-			Description: description,
-			FolderID:    folder.ID,
-			TextTargets: "10.0.0.0/24",
-			Emails:      "ops@example.com",
+			Name:           "Nightly",
+			Description:    description,
+			FolderID:       folder.ID,
+			TextTargets:    "10.0.0.0/24",
+			Emails:         "ops@example.com",
+			ScanTimeWindow: scanTimeWindow,
 		},
 	})
 	if err != nil {
@@ -201,23 +203,22 @@ func TestMockScanShapesDiffer(t *testing.T) {
 	if details.Info.ID != created.Scan.ID {
 		t.Errorf("object_id = %d, want %d", details.Info.ID, created.Scan.ID)
 	}
-	if details.Info.Targets != "10.0.0.0/24" {
-		t.Errorf("targets = %q", details.Info.Targets)
-	}
-	if details.Info.Emails != "ops@example.com" {
-		t.Errorf("notification_email_address = %q", details.Info.Emails)
-	}
-	if details.Info.TemplateUUID != "template-uuid" {
-		t.Errorf("scanner_name = %q", details.Info.TemplateUUID)
-	}
+	assertReported(t, "targets", details.Info.Targets, "10.0.0.0/24")
+	assertReported(t, "notification_email_address", details.Info.Emails, "ops@example.com")
+	assertReported(t, "scanner_name", details.Info.TemplateUUID, "template-uuid")
 
-	// The details endpoint does not report a description at all. Whether it is
-	// absent (live behaviour, and the mock's default) or present because
-	// MOCK_SCAN_DETAILS_DESCRIPTION is on, it must never come back as "" for a
-	// scan that has one: that is the reading which made the provider report
-	// every described scan as wiped.
-	if got := details.Info.Description; got != nil && *got != description {
-		t.Errorf("details reported description = %q, want %q or nothing at all", *got, description)
+	// The details endpoint reports neither the description nor the submitted
+	// settings. Whether a field is absent (live behaviour, and the mock's
+	// default) or present because MOCK_SCAN_DETAILS_SETTINGS=report, it must
+	// never come back as a zero value for a scan that has one: that reading
+	// made the provider report a described scan as wiped and re-propose a
+	// configured scan_time_window on every plan.
+	assertReported(t, "details description", details.Info.Description, description)
+	if got := details.Info.ScanTimeWindow; got != nil && *got != scanTimeWindow {
+		t.Errorf("details reported scan_time_window = %d, want %d or nothing at all", *got, scanTimeWindow)
+	}
+	if got := details.Info.CreationDate; got != nil && *got == 0 {
+		t.Error("details reported creation_date = 0; absent would be honest, zero is not")
 	}
 
 	// The update echo is optional -- several tenants answer with no body -- but
@@ -245,6 +246,16 @@ func quoteOrNil(p *string) string {
 		return "nothing"
 	}
 	return fmt.Sprintf("%q", *p)
+}
+
+// assertReported accepts a field the endpoint may legitimately omit, and rejects
+// the one answer that is never right: reported, but empty, for a value that was
+// set. That is the shape which read back as "the tenant wiped it".
+func assertReported(t *testing.T, label string, got *string, want string) {
+	t.Helper()
+	if got != nil && *got != want {
+		t.Errorf("%s = %q, want %q or nothing at all", label, *got, want)
+	}
 }
 
 func TestMockAssetTagFiltersCatalogue(t *testing.T) {

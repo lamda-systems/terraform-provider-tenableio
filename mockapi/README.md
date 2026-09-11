@@ -77,15 +77,22 @@ returns `{"scan": {...}}` with `id`, `text_targets`, `emails`. `GET /scans/{id}`
 returns `{"info": {...}}` with `object_id`, `targets`,
 `notification_email_address`, and the template under `scanner_name`.
 
-**`GET /scans/{id}` does not report a scan's description at all.** The endpoint
-describes a scan *result*, and the documented `info` schema has no
-`description`. So the field is write-only as far as reads go: `POST /scans`
-echoes it, `PUT /scans/{id}` echoes it when it answers with a body, and the
-details endpoint never does. The mock used to include it anyway — that one
-courtesy let a provider bug ship, because reading state back from the details
-endpoint yields `""`, which looks exactly like a description somebody wiped.
-`MOCK_SCAN_DETAILS_DESCRIPTION=1` brings the forgiving shape back for the
-provider that has to tolerate both.
+**`GET /scans/{id}` does not report the settings it was sent.** The endpoint
+describes a scan *result*, and the documented `info` schema carries neither the
+submitted settings nor the audit timestamps. Confirmed absent against a live
+tenant: `description`, `scan_time_window`, `creation_date` and
+`last_modification_date`. Those fields are write-only as far as reads go:
+`POST /scans` echoes them, `PUT /scans/{id}` echoes them when it answers with a
+body, and the details endpoint never does.
+
+The mock used to include them anyway — that courtesy let two provider bugs ship.
+Reading state back from the details endpoint yields `""` or `0`, which looks
+exactly like a value somebody wiped: the description failed the apply outright,
+and `scan_time_window` produced a plan that proposed the configured 180 on every
+run and never settled. `MOCK_SCAN_DETAILS_SETTINGS=report` brings the forgiving
+shape back for a provider that has to tolerate both. What the endpoint *does*
+report — `status`, `launch`, `enabled`, `targets`, the schedule — stays
+reported; the point is not "return less".
 
 **Several writes return nothing.** `POST /folders` returns only `{"id": N}`.
 `PUT /folders/{id}`, `PUT /policies/{id}`, `PUT /scans/{id}` and every `DELETE`
@@ -108,7 +115,7 @@ every combination** — that is what the switches are for.
 | `MOCK_OMITTED_DESCRIPTION` | `clears` | `preserves` | Whether a `PUT` with no `description` key wipes the stored text or keeps it |
 | `MOCK_OMITTED_FILTERS` | `clears` | `preserves` | Whether a `PUT` with no `filters` key reverts a dynamic tag to static or keeps its rules |
 | `MOCK_LOWERCASE_CATEGORY_NAMES` | off | on | Folds category names to lower case and echoes the folded form |
-| `MOCK_SCAN_DETAILS_DESCRIPTION` | off | on | Whether `GET /scans/{id}` reports `description` in its `info` object |
+| `MOCK_SCAN_DETAILS_SETTINGS` | `omit` | `report` | Whether `GET /scans/{id}` echoes back `description`, `scan_time_window` and the two timestamps |
 | `MOCK_SCAN_UPDATE_ECHO` | `empty` | `object` | Whether `PUT /scans/{id}` answers with no body or with the bare scan object |
 | `MOCK_REJECT_UNKNOWN_FIELDS` | off | on | Lint mode: 400 on a body field the endpoint does not define |
 
@@ -130,14 +137,15 @@ Why these matter:
 - **`MOCK_OMITTED_FILTERS`** is why the provider forces a replacement rather
   than an update when filters are removed from a dynamic tag: neither answer is
   documented, so it cannot rely on either.
-- **`MOCK_SCAN_DETAILS_DESCRIPTION` and `MOCK_SCAN_UPDATE_ECHO`** are the pair
-  that caught a live failure. With the details endpoint silent about
-  `description` (the default, and what production does) and the update answering
-  with no body, a scan's description can be *written* and then never read back.
-  A provider that treats "not reported" as `""` wipes the value out of its own
-  state on every refresh, proposes restoring it on every plan, and then fails
-  the apply because the update cannot echo it either. Both variables on, the
-  same provider looks perfectly healthy — which is the whole point.
+- **`MOCK_SCAN_DETAILS_SETTINGS` and `MOCK_SCAN_UPDATE_ECHO`** are the pair that
+  caught two live failures. With the details endpoint silent about the submitted
+  settings (the default, and what production does) and the update answering with
+  no body, a scan's description and `scan_time_window` can be *written* and then
+  never read back. A provider that treats "not reported" as `""` or `0` wipes
+  them out of its own state on every refresh and proposes restoring them on every
+  plan; the description additionally failed the apply, because the update cannot
+  echo it either. Set both to the forgiving values and the same provider looks
+  perfectly healthy — which is the whole point.
 
 Other settings: `MOCK_ACCESS_KEY`, `MOCK_SECRET_KEY`, `MOCK_USER`, `MOCK_SEED`
 (default on), `MOCK_FROZEN_CLOCK` (default on, for byte-reproducible responses).

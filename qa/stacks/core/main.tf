@@ -100,8 +100,9 @@ resource "tenableio_scan" "ondemand" {
   emails        = "qa@example.com"
 }
 
-# No description: pins the "" default end to end, next to the described scan
-# above. Both have to settle.
+# No description, but a scan_time_window and a full schedule: those are the
+# other settings GET /scans/{id} does not report back, and reading them as zero
+# is what kept re-proposing them on every plan.
 resource "tenableio_scan" "weekly" {
   template_uuid    = "329692d8-ea42-4e96-acd6-7da6c3571c27d24bd260ef5f9e66"
   name             = "qa-weekly"
@@ -204,4 +205,18 @@ output "ondemand_scan_description" {
 
 output "weekly_scan_description" {
   value = tenableio_scan.weekly.description
+}
+
+# Settings the details endpoint never echoes back. The empty re-plan is the real
+# assertion; these pin the values as well, so a silent zeroing cannot pass.
+output "weekly_scan_time_window" {
+  value = tenableio_scan.weekly.scan_time_window
+}
+
+output "weekly_scan_launch" {
+  value = tenableio_scan.weekly.launch
+}
+
+output "weekly_scan_timezone" {
+  value = tenableio_scan.weekly.timezone
 }

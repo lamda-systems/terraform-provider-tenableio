@@ -250,24 +250,38 @@ def test_scan_get_returns_the_renamed_info_shape(client: TestClient) -> None:
     assert "emails" not in info
 
 
-def test_scan_get_does_not_report_the_description(client: TestClient) -> None:
-    """The field the create response echoes is missing from the details one.
+def test_scan_get_does_not_report_the_submitted_settings(client: TestClient) -> None:
+    """What the create response echoes is missing from the details one.
 
-    Live Tenable.io omits it, so anything that reads a scan's description back
-    from this endpoint sees nothing -- not an empty description, *nothing*. The
-    mock including it is what let a provider bug reach production.
+    Live Tenable.io omits all of these, so anything that reads them back from
+    this endpoint sees nothing -- not an empty value, *nothing*. The mock
+    including them is what let two provider bugs reach production: a described
+    scan read back as wiped, and a configured scan_time_window re-proposed on
+    every plan.
     """
-    scan = make_scan(client, description="daily scan on test devices")
+    scan = make_scan(client, description="daily scan on test devices", scan_time_window=180)
     assert scan["description"] == "daily scan on test devices"
+    assert scan["scan_time_window"] == 180
+    assert scan["creation_date"]
 
     info = client.get(f"/scans/{scan['id']}", headers=AUTH).json()["info"]
-    assert "description" not in info
+    for absent in ("description", "scan_time_window", "creation_date", "last_modification_date"):
+        assert absent not in info, absent
+    # What it does report stays reported: the bug was never "return less".
+    assert info["status"] == scan["status"]
+    assert info["launch"] == scan["launch"]
+    assert info["enabled"] == scan["enabled"]
 
 
-def test_scan_details_description_quirk_reports_it(client_describing_scans: TestClient) -> None:
-    scan = make_scan(client_describing_scans, description="daily scan on test devices")
+def test_scan_details_settings_quirk_reports_them(client_describing_scans: TestClient) -> None:
+    scan = make_scan(
+        client_describing_scans, description="daily scan on test devices", scan_time_window=180
+    )
     info = client_describing_scans.get(f"/scans/{scan['id']}", headers=AUTH).json()["info"]
     assert info["description"] == "daily scan on test devices"
+    assert info["scan_time_window"] == 180
+    assert info["creation_date"] == scan["creation_date"]
+    assert info["last_modification_date"] == scan["last_modification_date"]
 
 
 def test_scan_list_filters_by_folder(client: TestClient) -> None:

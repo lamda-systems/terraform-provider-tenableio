@@ -280,16 +280,22 @@ func (r *ScanResource) Create(ctx context.Context, req resource.CreateRequest, r
 	}
 
 	plan.ID = types.Int64Value(int64(result.Scan.ID))
-	plan.UUID = types.StringValue(result.Scan.UUID)
-	plan.Status = types.StringValue(result.Scan.Status)
-	plan.CreationDate = types.Int64Value(int64(result.Scan.CreationDate))
-	plan.LastModifiedDate = types.Int64Value(int64(result.Scan.LastModificationDate))
+
+	// Every Computed attribute is unknown at this point and has to be settled
+	// with a known value, but the create response is not documented to carry
+	// status or launch at all. Starting from null rather than "" or 0 records
+	// "Tenable.io did not say" instead of asserting an epoch timestamp or an
+	// empty status it never reported.
+	plan.UUID = readReportedString(types.StringNull(), result.Scan.UUID)
+	plan.Status = readReportedString(types.StringNull(), result.Scan.Status)
+	plan.CreationDate = readReportedInt64(types.Int64Null(), result.Scan.CreationDate)
+	plan.LastModifiedDate = readReportedInt64(types.Int64Null(), result.Scan.LastModificationDate)
 
 	// launch is Optional+Computed with no default, so it is unknown whenever the
 	// configuration leaves it out. Settle it from the response; a configured
 	// value is already known and must be left exactly as planned.
 	if plan.Launch.IsUnknown() {
-		plan.Launch = types.StringValue(result.Scan.Launch)
+		plan.Launch = readReportedString(types.StringNull(), result.Scan.Launch)
 	}
 
 	source := echoSource(http.MethodPost, r.client.BaseURL+"/scans", result.Scan.PresentKeys, r.client.ProxyForURL())
@@ -322,29 +328,34 @@ func (r *ScanResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	}
 
 	info := result.Info
-	state.UUID = types.StringValue(info.UUID)
 	state.Name = types.StringValue(info.Name)
-	// GET /scans/{id} does not report the description, so there is nothing to
-	// reconcile and state keeps the value it already has. Overwriting it with ""
-	// made every refresh invent a change, and the update that followed then
-	// failed because the scan details endpoint cannot echo a description back.
-	// The cost is that an out-of-band description edit goes undetected.
-	state.Description = readReportedString(state.Description, info.Description)
-	state.Status = types.StringValue(info.Status)
-	state.Enabled = types.BoolValue(info.Enabled)
-	state.CreationDate = types.Int64Value(int64(info.CreationDate))
-	state.LastModifiedDate = types.Int64Value(int64(info.LastModificationDate))
 
-	state.FolderID = readOptionalInt64(state.FolderID, info.FolderID)
-	state.ScannerID = readOptionalInt64(state.ScannerID, info.ScannerID)
-	state.PolicyID = readOptionalInt64(state.PolicyID, info.PolicyID)
-	state.ScanTimeWindow = readOptionalInt64(state.ScanTimeWindow, info.ScanTimeWindow)
-	state.TextTargets = readOptionalString(state.TextTargets, info.Targets)
-	state.RRules = readOptionalString(state.RRules, info.RRules)
-	state.Starttime = readOptionalString(state.Starttime, info.Starttime)
-	state.Timezone = readOptionalString(state.Timezone, info.Timezone)
-	state.Launch = readOptionalString(state.Launch, info.Launch)
-	state.Emails = readOptionalString(state.Emails, info.Emails)
+	// Nothing else here is guaranteed to be in the response: GET /scans/{id}
+	// describes a scan result, not the settings that were submitted, and a field
+	// it leaves out means "unknown", so state keeps what it holds. Writing the
+	// zero value instead is what produced the drift loop -- an absent
+	// scan_time_window read back as 0 against a configured 180, re-proposed on
+	// every plan -- and, for description, an apply that could never succeed.
+	//
+	// The cost is accepted: an out-of-band edit to a field this endpoint does
+	// not report goes undetected.
+	state.UUID = readReportedString(state.UUID, info.UUID)
+	state.Description = readReportedString(state.Description, info.Description)
+	state.Status = readReportedString(state.Status, info.Status)
+	state.Enabled = readReportedBool(state.Enabled, info.Enabled)
+	state.CreationDate = readReportedInt64(state.CreationDate, info.CreationDate)
+	state.LastModifiedDate = readReportedInt64(state.LastModifiedDate, info.LastModificationDate)
+
+	state.FolderID = readReportedInt64(state.FolderID, info.FolderID)
+	state.ScannerID = readReportedInt64(state.ScannerID, info.ScannerID)
+	state.PolicyID = readReportedInt64(state.PolicyID, info.PolicyID)
+	state.ScanTimeWindow = readReportedInt64(state.ScanTimeWindow, info.ScanTimeWindow)
+	state.TextTargets = readReportedString(state.TextTargets, info.Targets)
+	state.RRules = readReportedString(state.RRules, info.RRules)
+	state.Starttime = readReportedString(state.Starttime, info.Starttime)
+	state.Timezone = readReportedString(state.Timezone, info.Timezone)
+	state.Launch = readReportedString(state.Launch, info.Launch)
+	state.Emails = readReportedString(state.Emails, info.Emails)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -430,13 +441,19 @@ func (r *ScanResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	}
 
 	plan.ID = state.ID
-	plan.UUID = types.StringValue(result.Info.UUID)
-	plan.Status = types.StringValue(result.Info.Status)
-	plan.CreationDate = types.Int64Value(int64(result.Info.CreationDate))
-	plan.LastModifiedDate = types.Int64Value(int64(result.Info.LastModificationDate))
+
+	// The Computed attributes are unknown again on an update and must be settled
+	// from the response -- except that this response does not report the
+	// timestamps, so the prior state value is the best known answer. A stale
+	// last_modification_date is invisible to Terraform; a zero one is a visible
+	// lie, and an unknown left unset fails the apply outright.
+	plan.UUID = readReportedString(state.UUID, result.Info.UUID)
+	plan.Status = readReportedString(state.Status, result.Info.Status)
+	plan.CreationDate = readReportedInt64(state.CreationDate, result.Info.CreationDate)
+	plan.LastModifiedDate = readReportedInt64(state.LastModifiedDate, result.Info.LastModificationDate)
 
 	if plan.Launch.IsUnknown() {
-		plan.Launch = types.StringValue(result.Info.Launch)
+		plan.Launch = readReportedString(state.Launch, result.Info.Launch)
 	}
 
 	scanURL := fmt.Sprintf("%s/scans/%d", r.client.BaseURL, scanID)
@@ -507,34 +524,34 @@ func (r *ScanResource) ImportState(ctx context.Context, req resource.ImportState
 	}
 
 	info := result.Info
-	// Import starts with zero-value (null) types, so readOptional* will only
-	// populate fields that have non-zero API values — correct for import.
+	// Import starts from null throughout, so readReported* populates only what
+	// the response actually carries and everything it omits stays null. An
+	// imported scan therefore has no description and no timestamps when the
+	// details endpoint does not report them: the first plan proposes writing the
+	// configured description back, which is a no-op against the stored value
+	// rather than drift.
 	state := ScanResourceModel{
-		ID:           types.Int64Value(scanID),
-		UUID:         types.StringValue(info.UUID),
-		TemplateUUID: types.StringValue(info.TemplateUUID),
-		Name:         types.StringValue(info.Name),
-		// The details endpoint does not report the description, so an import
-		// adopts the schema default. The first plan after importing a described
-		// scan therefore proposes writing the configured text back; that update
-		// is a no-op against the stored value, not drift.
+		ID:               types.Int64Value(scanID),
+		Name:             types.StringValue(info.Name),
+		UUID:             readReportedString(types.StringNull(), info.UUID),
+		TemplateUUID:     readReportedString(types.StringNull(), info.TemplateUUID),
 		Description:      readReportedString(types.StringValue(""), info.Description),
-		Enabled:          types.BoolValue(info.Enabled),
-		Status:           types.StringValue(info.Status),
-		CreationDate:     types.Int64Value(int64(info.CreationDate)),
-		LastModifiedDate: types.Int64Value(int64(info.LastModificationDate)),
+		Enabled:          readReportedBool(types.BoolValue(true), info.Enabled),
+		Status:           readReportedString(types.StringNull(), info.Status),
+		CreationDate:     readReportedInt64(types.Int64Null(), info.CreationDate),
+		LastModifiedDate: readReportedInt64(types.Int64Null(), info.LastModificationDate),
 	}
 
-	state.FolderID = readOptionalInt64(state.FolderID, info.FolderID)
-	state.ScannerID = readOptionalInt64(state.ScannerID, info.ScannerID)
-	state.PolicyID = readOptionalInt64(state.PolicyID, info.PolicyID)
-	state.ScanTimeWindow = readOptionalInt64(state.ScanTimeWindow, info.ScanTimeWindow)
-	state.TextTargets = readOptionalString(state.TextTargets, info.Targets)
-	state.RRules = readOptionalString(state.RRules, info.RRules)
-	state.Starttime = readOptionalString(state.Starttime, info.Starttime)
-	state.Timezone = readOptionalString(state.Timezone, info.Timezone)
-	state.Launch = readOptionalString(state.Launch, info.Launch)
-	state.Emails = readOptionalString(state.Emails, info.Emails)
+	state.FolderID = readReportedInt64(state.FolderID, info.FolderID)
+	state.ScannerID = readReportedInt64(state.ScannerID, info.ScannerID)
+	state.PolicyID = readReportedInt64(state.PolicyID, info.PolicyID)
+	state.ScanTimeWindow = readReportedInt64(state.ScanTimeWindow, info.ScanTimeWindow)
+	state.TextTargets = readReportedString(state.TextTargets, info.Targets)
+	state.RRules = readReportedString(state.RRules, info.RRules)
+	state.Starttime = readReportedString(state.Starttime, info.Starttime)
+	state.Timezone = readReportedString(state.Timezone, info.Timezone)
+	state.Launch = readReportedString(state.Launch, info.Launch)
+	state.Emails = readReportedString(state.Emails, info.Emails)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

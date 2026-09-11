@@ -221,7 +221,7 @@ def _install_admin(app: FastAPI, settings: Settings, store: Store) -> None:
             "quirks": {
                 "on_omitted_description": settings.quirks.on_omitted_description.value,
                 "on_omitted_filters": settings.quirks.on_omitted_filters.value,
-                "scan_details_description": settings.quirks.scan_details_description,
+                "scan_details_settings": settings.quirks.scan_details_settings.value,
                 "scan_update_echo": settings.quirks.scan_update_echo.value,
                 "lowercase_category_names": settings.quirks.lowercase_category_names,
                 "reject_unknown_fields": settings.quirks.reject_unknown_fields,
