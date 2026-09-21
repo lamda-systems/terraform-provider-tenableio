@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==8.4.2", "httpx==0.28.1"]
+dev = ["pytest==9.0.3", "httpx==0.28.1"]
 
 [project.scripts]
 tenableio-mock = "tenableio_mock.__main__:main"
