@@ -10,6 +10,17 @@ This project uses a **VS Code devcontainer** (Dockerfile-local). All tooling —
 
 Every tool in `Dockerfile-local` is pinned to an explicit version via `ARG` (Terraform, golangci-lint, goreleaser, delve, tfplugindocs, gosec, govulncheck) — do not reintroduce `@latest`. `GOFLAGS` is deliberately left unset so the container uses Go's default `-mod=readonly`, matching CI: with `-mod=mod`, anything that shells out to `go build` (notably `tfplugindocs` during `make docs`) can silently rewrite `go.mod`/`go.sum`. `go get` and `go mod tidy` still work when you actually intend a dependency change.
 
+### Claude Code memory
+
+Claude Code's auto-memory for this project lives in `.claude/memory/` and is
+committed, so it survives a container rebuild and is shared with the branch.
+`.devcontainer/setup-claude-memory.sh` (run by `postCreateCommand`) points
+`autoMemoryDirectory` there via `.claude/settings.local.json`. That setting
+cannot go in the checked-in `.claude/settings.json`, which Claude Code ignores
+for it, and it needs the absolute checkout path, which differs between a
+codespace and the local devcontainer. Run the script by hand if the container
+predates it, then restart Claude Code.
+
 ## Tech Stack
 
 - **Language**: Go 1.26+
@@ -114,7 +125,7 @@ Where the docs genuinely leave a behaviour unresolved, the mock does not guess:
 it implements the conservative reading and exposes the alternative as an
 environment variable (`MOCK_OMITTED_DESCRIPTION`, `MOCK_OMITTED_FILTERS`,
 `MOCK_LOWERCASE_CATEGORY_NAMES`, `MOCK_SCAN_DETAILS_SETTINGS`,
-`MOCK_SCAN_UPDATE_ECHO`). **A correct provider passes under every
+`MOCK_SCAN_UPDATE_ECHO`, `MOCK_POLICY_DETAILS_SETTINGS`). **A correct provider passes under every
 combination** — testing one setting proves nothing. `MOCK_OMITTED_DESCRIPTION=preserves`
 and `MOCK_LOWERCASE_CATEGORY_NAMES=1` reproduce the "Provider produced
 inconsistent result after apply" failures on `.description` and `.name`; the two
@@ -215,6 +226,89 @@ Consequences baked into the code, do not "simplify" them away:
 Limits from the API: 40 rules per tag, 1,024 values per rule, 1 MB request body.
 
 **Unverified against a live tenant** (implemented from docs only) — confirm with `TF_ACC=1` before relying on them: static→dynamic conversion via update, the exact response echo format, and clear-on-omit semantics.
+
+## Scan Templates
+
+Tenable's UI says "scan template" for two different things, and the API keeps
+them apart:
+
+| | API | Terraform |
+|---|---|---|
+| Tenable-provided (read-only) | `GET /editor/{type}/templates[/{uuid}]` | `tenableio_{scan,policy}_template[s]_tenable` data sources |
+| User-defined | `/policies` — the API calls them policies | `tenableio_scan_template_custom` resource, `tenableio_scan_template[s]_custom` data sources (`tenableio_policy` / `tenableio_policies` are deprecated) |
+
+- **There are two template lists, `scan` and `policy`.** A scan takes its
+  `template_uuid` from the scan list; a policy takes its base from the policy
+  list. The docs never say a template keeps the same uuid in both, so the mock
+  gives each list its own and `client.TemplateType` keeps them apart. Do not
+  merge the two data sources into one with a shared uuid.
+- **Titles are not unique.** A network template and its agent counterpart can
+  share one ("Malware Scan"), so a title lookup takes `is_agent` to
+  disambiguate and fails, listing the candidates, rather than picking one.
+  `is_agent`/`is_was` are "boolean or null" on the wire; the client keeps them
+  as `*bool` and the data sources expose null as `false`.
+- **Lookup errors list every valid name.** A failed lookup should never send a
+  user to the API to find out what to type.
+- **User-defined lookups read only `GET /policies`.** The list is documented
+  field by field (`client.PolicySummary`) and carries all the metadata.
+  User-defined names are not unique, so a name lookup is exact and fails on a
+  duplicate, pointing at lookup by `id`.
+
+### User-defined templates: three shapes
+
+| | Carries |
+|---|---|
+| `POST`/`PUT /policies[/{id}]` | `{uuid, settings, plugins}`; `settings` is one flat object with `name`, `description` and every template setting side by side |
+| `GET /policies/{id}` | the same nesting back, every setting a **string** (except `max_compliance_check_timeout` and `http_reauth_delay`, which may be integers), and **no metadata** |
+| `GET /policies` | flat summaries: owner, sharing, timestamps — **no settings** |
+
+So a full read is two calls (`GetPolicyDetails` + `FindPolicy`). The old
+`tenableio_policy` decoded the details as a flat object with metadata, which
+meant every create failed with `stored name as ""`.
+
+`tenableio_scan_template_custom` rules, each load-bearing:
+
+- **The typed settings come from one table.** `scanSettings` in
+  [scan_template_settings.go](src/internal/resources/scan_template_settings.go)
+  lists 171 settings generated from the Create scan reference (block, API key,
+  kind, network/agent family, choices, range). Schema, request, read-back, echo
+  check and plan checks in `scan_template_blocks.go` are all driven from it, so
+  adding a setting is adding a row. Where an enum and its own prose disagree, the
+  row holds the union: an over-strict validator blocks working configuration,
+  while an invalid value is still caught by the echo check.
+- **Setting attributes are Optional, never Computed.** Every template has a
+  default for everything; adopting those into state would make every unconfigured
+  attribute a diff. Only configured settings are sent, tracked and verified.
+- **Removing a setting or a plugin family forces replacement** (`ModifyPlan`).
+  The docs say PUT preserves any setting it is not sent, so it cannot be cleared
+  in place.
+- **A missing setting is "not reported", not "cleared".** The documented details
+  example omits settings whose toggle is off (the web crawler under
+  `scan_webapps`, file-scan locations under `enable_file_scanning`). Read keeps
+  state for those, and create/update list them in a warning instead of failing —
+  the scan-description lesson again. A reported value that differs fails the
+  apply through `requireEcho`.
+- **The plan checks the template** against the policy template list: a uuid from
+  the scan list (the error names it), a compliance template (`compliance`,
+  `agent_compliance`, `scap`, `agent_scap` — those need audits and belong to the
+  planned `tenableio_policy_template_custom`), and settings documented only for
+  network or only for agent templates, which Tenable.io would silently discard.
+- **Credentials, audits and uploaded-file settings are not in it yet.** PUT does
+  not document `credentials` or `audits`, so changing either will force
+  replacement when they land.
+- `tenableio_policy` migrates with a `moved` block (`MoveState`); the template
+  keeps its id.
+
+Typed attributes for user-defined templates are generated from a catalogue of
+each template's input definitions, which the docs do not publish.
+`src/tools/templatecatalog` exports it from a live tenant (GETs only; tenant
+populated inputs such as `folder_id` and `scanner_id` are redacted, anything
+else that looks tenant-specific is listed under `review`):
+
+```bash
+cd src && TENABLEIO_ACCESS_KEY=... TENABLEIO_SECRET_KEY=... \
+  go run ./tools/templatecatalog -out template-catalog.json
+```
 
 ## Scans: Settings That Are Never Read Back
 
@@ -339,8 +433,8 @@ to detect out-of-band deletion.
 
 `qa/` runs real Terraform against the mock. `./qa/run.sh` builds the provider,
 points Terraform at it with `dev_overrides` (no registry, no `terraform init`),
-and drives two stacks through apply → re-plan → re-apply → destroy under four
-mock profiles. Details in [qa/README.md](qa/README.md).
+and drives three stacks (`tags`, `core`, `templates`) through apply → re-plan →
+re-apply → destroy under four mock profiles. Details in [qa/README.md](qa/README.md).
 
 The assertion that earns its keep is **the second plan being empty**: that is
 what proves the provider persisted exactly what it planned. `qa/guards/` holds
