@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
@@ -319,5 +320,156 @@ func TestMockSeededReadOnlyEndpoints(t *testing.T) {
 	}
 	if len(networks.Networks) != 1 || !networks.Networks[0].IsDefault {
 		t.Errorf("expected exactly one seeded default network, got %+v", networks.Networks)
+	}
+}
+
+func TestMockTemplateLists(t *testing.T) {
+	c := mockClient(t)
+	ctx := context.Background()
+
+	byName := map[client.TemplateType]map[string]client.Template{}
+	for _, templateType := range []client.TemplateType{client.TemplateTypeScan, client.TemplateTypePolicy} {
+		resp, err := c.ListTemplates(ctx, templateType)
+		if err != nil {
+			t.Fatalf("listing %s templates: %v", templateType, err)
+		}
+		byName[templateType] = map[string]client.Template{}
+		for _, tmpl := range resp.Templates {
+			if tmpl.UUID == "" || tmpl.Name == "" || tmpl.Title == "" {
+				t.Errorf("%s template %+v is missing a uuid, name or title", templateType, tmpl)
+			}
+			byName[templateType][tmpl.Name] = tmpl
+		}
+	}
+
+	scan, policy := byName[client.TemplateTypeScan]["advanced"], byName[client.TemplateTypePolicy]["advanced"]
+	if scan.UUID == "" || policy.UUID == "" {
+		t.Fatal("expected the advanced template in both lists")
+	}
+	if scan.UUID == policy.UUID {
+		t.Error("the mock gives each list its own uuids; a shared one means the lists were mixed up")
+	}
+
+	// null on the wire must survive as nil, not collapse to false.
+	if basic := byName[client.TemplateTypeScan]["basic"]; basic.IsAgent != nil {
+		t.Errorf("basic.IsAgent = %v, want nil", *basic.IsAgent)
+	}
+	if agent := byName[client.TemplateTypeScan]["agent_basic"]; agent.IsAgent == nil || !*agent.IsAgent {
+		t.Errorf("agent_basic.IsAgent = %v, want true", agent.IsAgent)
+	}
+	if agent := byName[client.TemplateTypeScan]["agent_basic"]; agent.Order != nil {
+		t.Errorf("agent_basic.Order = %d, want nil", *agent.Order)
+	}
+}
+
+func TestMockPolicyListShape(t *testing.T) {
+	c := mockClient(t)
+	ctx := context.Background()
+
+	base := policyTemplateUUID(t, c, "advanced")
+	created, err := c.CreatePolicy(ctx, client.PolicyRequest{
+		TemplateUUID: base, Name: "Internal - Credentialed", Description: "weekly", Visibility: "shared",
+	})
+	if err != nil {
+		t.Fatalf("creating policy: %v", err)
+	}
+
+	list, err := c.ListPolicies(ctx)
+	if err != nil {
+		t.Fatalf("listing policies: %v", err)
+	}
+	var found *client.PolicySummary
+	for i := range list.Policies {
+		if list.Policies[i].ID == created.PolicyID {
+			found = &list.Policies[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("policy %d missing from the list", created.PolicyID)
+	}
+	if found.Name != "Internal - Credentialed" || found.TemplateUUID != base {
+		t.Errorf("list entry = %+v, want the name and base template it was created with", *found)
+	}
+	if found.Description == nil || *found.Description != "weekly" {
+		t.Errorf("Description = %v, want \"weekly\"", found.Description)
+	}
+	if found.Shared != 1 {
+		t.Errorf("Shared = %d, want 1 for a shared policy", found.Shared)
+	}
+}
+
+// policyTemplateUUID looks a template up in the policy list, which is the only
+// list a policy may be based on.
+func policyTemplateUUID(t *testing.T, c *client.Client, name string) string {
+	t.Helper()
+	list, err := c.ListTemplates(context.Background(), client.TemplateTypePolicy)
+	if err != nil {
+		t.Fatalf("listing policy templates: %v", err)
+	}
+	for _, tmpl := range list.Templates {
+		if tmpl.Name == name {
+			return tmpl.UUID
+		}
+	}
+	t.Fatalf("no %q template in the policy list", name)
+	return ""
+}
+
+func TestMockPolicyTemplateRoundTrip(t *testing.T) {
+	c := mockClient(t)
+	ctx := context.Background()
+
+	created, err := c.CreatePolicy(ctx, client.PolicyRequest{
+		TemplateUUID: policyTemplateUUID(t, c, "advanced"),
+		Name:         "Internal",
+		Settings: map[string]any{
+			"ping_the_remote_host":         "no",
+			"max_compliance_check_timeout": "600",
+			"webcrawl_max_depth":           "4",
+		},
+		Plugins: map[string]client.PluginFamily{"Backdoors": {Status: "disabled"}},
+	})
+	if err != nil {
+		t.Fatalf("creating policy: %v", err)
+	}
+
+	details, err := c.GetPolicyDetails(ctx, created.PolicyID)
+	if err != nil {
+		t.Fatalf("getting policy details: %v", err)
+	}
+	for key, want := range map[string]string{
+		"name": "Internal", "description": "", "ping_the_remote_host": "no",
+		// Sent as a string, reported as an integer, normalised back to a string.
+		"max_compliance_check_timeout": "600",
+	} {
+		if got := details.Setting(key); got == nil || *got != want {
+			t.Errorf("setting %s = %v, want %q", key, got, want)
+		}
+	}
+	// Stored, but not reported while scan_webapps is off.
+	if got := details.Setting("webcrawl_max_depth"); got != nil {
+		t.Errorf("webcrawl_max_depth = %q, want it unreported while its toggle is off", *got)
+	}
+	if details.Plugins["Backdoors"].Status != "disabled" || details.Plugins["SCADA"].Status != "enabled" {
+		t.Errorf("plugins = %v, want Backdoors disabled and the rest at the template's status", details.Plugins)
+	}
+	if !reflect.DeepEqual(details.PresentKeys, []string{"plugins", "settings", "uuid"}) {
+		t.Errorf("PresentKeys = %v, want the documented nesting", details.PresentKeys)
+	}
+
+	if err := c.UpdatePolicy(ctx, created.PolicyID, client.PolicyRequest{
+		TemplateUUID: "ignored", Name: "Internal", Settings: map[string]any{"scan_webapps": "yes"},
+	}); err != nil {
+		t.Fatalf("updating policy: %v", err)
+	}
+	details, err = c.GetPolicyDetails(ctx, created.PolicyID)
+	if err != nil {
+		t.Fatalf("getting policy details: %v", err)
+	}
+	if got := details.Setting("ping_the_remote_host"); got == nil || *got != "no" {
+		t.Errorf("ping_the_remote_host = %v after an update that left it out, want \"no\" kept", got)
+	}
+	if got := details.Setting("webcrawl_max_depth"); got == nil || *got != "4" {
+		t.Errorf("webcrawl_max_depth = %v once scan_webapps is on, want \"4\"", got)
 	}
 }

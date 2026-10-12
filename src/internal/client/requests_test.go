@@ -59,9 +59,12 @@ func TestRequestsSendClearedFieldsExplicitly(t *testing.T) {
 			mustNotHav: []string{`"network_id"`, `"schedule"`},
 		},
 		{
-			name:     "policy settings carry both defaulted fields",
-			req:      PolicySettings{Name: "p"},
-			mustHave: []string{`"description":""`, `"visibility":""`},
+			name:     "policy update carries the defaulted description",
+			req:      PolicyRequest{Name: "p"},
+			mustHave: []string{`"name":"p"`, `"description":""`},
+			// uuid is create-only and plugins only for templates with plugin
+			// selection; visibility is sent only by the deprecated resource.
+			mustNotHav: []string{`"uuid"`, `"plugins"`, `"visibility"`},
 		},
 		{
 			name:     "scan settings",

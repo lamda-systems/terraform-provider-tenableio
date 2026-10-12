@@ -61,3 +61,64 @@ func (noSurroundingWhitespace) ValidateString(
 		),
 	)
 }
+
+// oneOf rejects a string that is not one of a fixed set of values.
+//
+// Tenable.io discards or rejects a value outside a setting's documented
+// choices, and either way the configuration would never settle; listing the
+// choices at validate time says what to write instead.
+type oneOf struct{ values []string }
+
+// OneOf returns the validator above.
+func OneOf(values ...string) validator.String { return oneOf{values: values} }
+
+func (v oneOf) Description(_ context.Context) string {
+	return "must be one of: " + quoteAll(v.values)
+}
+
+func (v oneOf) MarkdownDescription(ctx context.Context) string { return v.Description(ctx) }
+
+func (v oneOf) ValidateString(_ context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	value := req.ConfigValue.ValueString()
+	for _, allowed := range v.values {
+		if value == allowed {
+			return
+		}
+	}
+	resp.Diagnostics.AddAttributeError(req.Path, "Invalid Value",
+		fmt.Sprintf("%s is %q, which is not one of the values Tenable.io accepts: %s.",
+			req.Path, value, quoteAll(v.values)))
+}
+
+// int64Between rejects an integer outside an inclusive range.
+type int64Between struct{ min, max int64 }
+
+// Int64Between returns the validator above.
+func Int64Between(minimum, maximum int64) validator.Int64 { return int64Between{min: minimum, max: maximum} }
+
+func (v int64Between) Description(_ context.Context) string {
+	return fmt.Sprintf("must be between %d and %d", v.min, v.max)
+}
+
+func (v int64Between) MarkdownDescription(ctx context.Context) string { return v.Description(ctx) }
+
+func (v int64Between) ValidateInt64(_ context.Context, req validator.Int64Request, resp *validator.Int64Response) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	if value := req.ConfigValue.ValueInt64(); value < v.min || value > v.max {
+		resp.Diagnostics.AddAttributeError(req.Path, "Value Out of Range",
+			fmt.Sprintf("%s is %d; Tenable.io accepts %d to %d.", req.Path, value, v.min, v.max))
+	}
+}
+
+func quoteAll(values []string) string {
+	quoted := make([]string, len(values))
+	for i, value := range values {
+		quoted[i] = fmt.Sprintf("%q", value)
+	}
+	return strings.Join(quoted, ", ")
+}
