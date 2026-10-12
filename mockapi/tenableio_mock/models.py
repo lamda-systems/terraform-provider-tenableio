@@ -128,20 +128,20 @@ class AgentGroupCreate(_Body):
 # -- policies --------------------------------------------------------------
 
 
-class PolicySettings(_Body):
-    name: str
-    description: str | None = None
-    visibility: str | None = None
-
-
 class PolicyCreate(_Body):
+    # Settings are open-ended: which keys a policy accepts depends on its
+    # template, so they are checked in the router rather than by the model.
     uuid: str
-    settings: PolicySettings
+    settings: dict[str, Any]
+    plugins: dict[str, Any] | None = None
+    audits: dict[str, Any] | None = None
+    credentials: dict[str, Any] | None = None
 
 
 class PolicyUpdate(_Body):
     uuid: str | None = None
-    settings: PolicySettings
+    settings: dict[str, Any] | None = None
+    plugins: dict[str, Any] | None = None
 
 
 # -- scans -----------------------------------------------------------------

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from tenableio_mock.config import DetailsSettings, OnOmit, ScanUpdateEcho, settings_from_env
+from tenableio_mock.config import (
+    DetailsSettings,
+    OnOmit,
+    PolicyDetailsSettings,
+    ScanUpdateEcho,
+    settings_from_env,
+)
 
 
 def test_defaults_are_strict() -> None:
@@ -15,6 +21,7 @@ def test_defaults_are_strict() -> None:
     assert settings.quirks.reject_unknown_fields is False
     assert settings.quirks.scan_details_settings is DetailsSettings.OMIT
     assert settings.quirks.scan_update_echo is ScanUpdateEcho.EMPTY
+    assert settings.quirks.policy_details_settings is PolicyDetailsSettings.OMIT_INACTIVE
     assert settings.access_key == ""
     assert settings.seed is True
     assert settings.frozen_clock is True
@@ -29,6 +36,7 @@ def test_quirks_are_read_from_the_environment() -> None:
             "MOCK_REJECT_UNKNOWN_FIELDS": "1",
             "MOCK_SCAN_DETAILS_SETTINGS": "report",
             "MOCK_SCAN_UPDATE_ECHO": "object",
+            "MOCK_POLICY_DETAILS_SETTINGS": "all",
         }
     )
     assert settings.quirks.on_omitted_description is OnOmit.PRESERVES
@@ -37,6 +45,7 @@ def test_quirks_are_read_from_the_environment() -> None:
     assert settings.quirks.reject_unknown_fields is True
     assert settings.quirks.scan_details_settings is DetailsSettings.REPORT
     assert settings.quirks.scan_update_echo is ScanUpdateEcho.OBJECT
+    assert settings.quirks.policy_details_settings is PolicyDetailsSettings.ALL
 
 
 @pytest.mark.parametrize("raw", ["1", "true", "TRUE", "yes", "on"])
@@ -64,6 +73,11 @@ def test_an_invalid_omit_policy_fails_loudly() -> None:
 def test_an_invalid_scan_update_echo_fails_loudly() -> None:
     with pytest.raises(ValueError, match="MOCK_SCAN_UPDATE_ECHO"):
         settings_from_env({"MOCK_SCAN_UPDATE_ECHO": "maybe"})
+
+
+def test_an_invalid_policy_details_settings_fails_loudly() -> None:
+    with pytest.raises(ValueError, match="MOCK_POLICY_DETAILS_SETTINGS"):
+        settings_from_env({"MOCK_POLICY_DETAILS_SETTINGS": "some"})
 
 
 def test_an_invalid_details_settings_fails_loudly() -> None:
