@@ -1,6 +1,7 @@
 # Folders, networks, agent groups, exclusions, policies and scans, wired
 # together so the stack also exercises dependency ordering: the scan references
-# a folder, a policy and a scanner discovered through a data source.
+# a folder, a policy and a scanner discovered through a data source. Template
+# uuids are looked up by name or title, never written out.
 
 terraform {
   required_providers {
@@ -11,6 +12,33 @@ terraform {
 }
 
 provider "tenableio" {}
+
+# --- Tenable-provided templates ---------------------------------------------
+
+# A policy takes its template from the policy list, a scan from the scan list.
+# The mock gives the two lists different uuids, so mixing them up fails here.
+data "tenableio_policy_template_tenable" "advanced" {
+  name = "advanced"
+}
+
+data "tenableio_scan_template_tenable" "basic" {
+  title = "Basic Network Scan"
+}
+
+data "tenableio_scan_template_tenable" "advanced" {
+  name = "advanced"
+}
+
+# "Malware Scan" is the title of a network and an agent template alike;
+# is_agent is what makes this lookup unambiguous.
+data "tenableio_scan_template_tenable" "agent_malware" {
+  title    = "malware scan"
+  is_agent = true
+}
+
+data "tenableio_scan_templates_tenable" "all" {}
+
+data "tenableio_policy_templates_tenable" "all" {}
 
 # --- folders ---------------------------------------------------------------
 
@@ -63,7 +91,7 @@ resource "tenableio_exclusion" "weekly" {
 # --- policies --------------------------------------------------------------
 
 resource "tenableio_policy" "advanced" {
-  template_uuid = "329692d8-ea42-4e96-acd6-7da6c3571c27d24bd260ef5f9e66"
+  template_uuid = data.tenableio_policy_template_tenable.advanced.uuid
   name          = "qa-advanced-scan"
   description   = "Custom policy for the QA network"
   visibility    = "shared"
@@ -71,8 +99,24 @@ resource "tenableio_policy" "advanced" {
 
 # No description and no visibility: pins the "" and "private" defaults.
 resource "tenableio_policy" "minimal" {
-  template_uuid = "329692d8-ea42-4e96-acd6-7da6c3571c27d24bd260ef5f9e66"
+  template_uuid = data.tenableio_policy_template_tenable.advanced.uuid
   name          = "qa-minimal-policy"
+}
+
+# The same template looked up the two ways a user would. A lookup reads during
+# plan unless something it waits on is still changing, so the first waits on an
+# id that is unknown until create, the second on depends_on.
+data "tenableio_scan_template_custom" "by_id" {
+  id = tenableio_policy.advanced.id
+}
+
+data "tenableio_scan_template_custom" "by_name" {
+  name       = "qa-advanced-scan"
+  depends_on = [tenableio_policy.advanced]
+}
+
+data "tenableio_scan_templates_custom" "all" {
+  depends_on = [tenableio_policy.advanced, tenableio_policy.minimal]
 }
 
 # --- scans -----------------------------------------------------------------
@@ -91,7 +135,7 @@ locals {
 # follows cannot verify its own echo either. The second plan being empty is what
 # proves that is fixed.
 resource "tenableio_scan" "ondemand" {
-  template_uuid = "893d91d1-5440-4f8c-9a6b-b50cfba86652d24bd260ef5f9e66"
+  template_uuid = data.tenableio_scan_template_tenable.basic.uuid
   name          = "qa-ondemand"
   description   = "daily scan on Tenable test devices"
   text_targets  = "192.0.2.1-192.0.2.255"
@@ -104,7 +148,7 @@ resource "tenableio_scan" "ondemand" {
 # other settings GET /scans/{id} does not report back, and reading them as zero
 # is what kept re-proposing them on every plan.
 resource "tenableio_scan" "weekly" {
-  template_uuid    = "329692d8-ea42-4e96-acd6-7da6c3571c27d24bd260ef5f9e66"
+  template_uuid    = data.tenableio_scan_template_tenable.advanced.uuid
   name             = "qa-weekly"
   text_targets     = "10.0.0.0/24"
   folder_id        = tenableio_folder.qa.id
@@ -165,6 +209,21 @@ output "exclusion_count" {
   value = length(data.tenableio_exclusions.all.exclusions)
 }
 
+output "custom_template_count" {
+  value = length(data.tenableio_scan_templates_custom.all.templates)
+}
+
+# Both lookups land on the policy created above, and report what it was given.
+output "custom_lookups_agree" {
+  value = alltrue([
+    data.tenableio_scan_template_custom.by_name.id == tenableio_policy.advanced.id,
+    data.tenableio_scan_template_custom.by_id.name == "qa-advanced-scan",
+    data.tenableio_scan_template_custom.by_id.description == "Custom policy for the QA network",
+    data.tenableio_scan_template_custom.by_id.template_uuid == data.tenableio_policy_template_tenable.advanced.uuid,
+    data.tenableio_scan_template_custom.by_id.shared,
+  ])
+}
+
 output "policy_count" {
   value = length(data.tenableio_policies.all.policies)
 }
@@ -179,6 +238,23 @@ output "asset_count" {
 
 output "scanner_count" {
   value = length(data.tenableio_scanners.all.scanners)
+}
+
+output "scan_template_count" {
+  value = length(data.tenableio_scan_templates_tenable.all.templates)
+}
+
+output "policy_template_count" {
+  value = length(data.tenableio_policy_templates_tenable.all.templates)
+}
+
+# The lookup matched case-insensitively and kept the title as written.
+output "agent_malware_template_name" {
+  value = data.tenableio_scan_template_tenable.agent_malware.name
+}
+
+output "agent_malware_template_title" {
+  value = data.tenableio_scan_template_tenable.agent_malware.title
 }
 
 # Defaults that must survive a round trip untouched.
