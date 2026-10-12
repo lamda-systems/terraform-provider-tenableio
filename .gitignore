@@ -1,0 +1,2 @@
+# Personal Claude Code overrides. Recreated by .devcontainer/setup-claude-memory.sh.
+.claude/settings.local.json

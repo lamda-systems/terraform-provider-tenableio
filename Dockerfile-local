@@ -1,4 +1,4 @@
-FROM golang:1.26.6-bookworm
+FROM golang:1.26.9-bookworm
 
 ARG TERRAFORM_VERSION=1.14.9
 ARG GOLANGCI_LINT_VERSION=v2.12.2
@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     jq \
     bash-completion \
-    locales
+    locales \
+    python3-venv
 
 RUN curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
     -o /tmp/terraform.zip \

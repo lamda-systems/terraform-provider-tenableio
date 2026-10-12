@@ -39,7 +39,7 @@
       }
     }
   },
-  "postCreateCommand": "go mod download 2>/dev/null || true",
+  "postCreateCommand": "bash .devcontainer/setup-claude-memory.sh; go mod download 2>/dev/null || true",
   "remoteEnv": {
     "TF_LOG": "INFO"
   }
