@@ -12,6 +12,7 @@ from .config import Settings, settings_from_env
 from .errors import install_handlers, json_error
 from .routers import (
     agent_groups,
+    editor,
     exclusions,
     folders,
     networks,
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         exclusions.router,
         agent_groups.router,
         scanners.router,
+        editor.router,
         policies.router,
         scans.router,
         workbenches.router,
@@ -223,6 +225,7 @@ def _install_admin(app: FastAPI, settings: Settings, store: Store) -> None:
                 "on_omitted_filters": settings.quirks.on_omitted_filters.value,
                 "scan_details_settings": settings.quirks.scan_details_settings.value,
                 "scan_update_echo": settings.quirks.scan_update_echo.value,
+                "policy_details_settings": settings.quirks.policy_details_settings.value,
                 "lowercase_category_names": settings.quirks.lowercase_category_names,
                 "reject_unknown_fields": settings.quirks.reject_unknown_fields,
             },

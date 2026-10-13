@@ -167,36 +167,28 @@ def test_scanners_are_seeded_and_read_only(client: TestClient) -> None:
 
 
 # -- policies --------------------------------------------------------------
+# Template-specific behaviour (settings, plugins, the details shape) lives in
+# test_policies.py; these pin the response shape of each verb.
+
+
+def _policy_template(client: TestClient, name: str = "advanced") -> str:
+    templates = client.get("/editor/policy/templates", headers=AUTH).json()["templates"]
+    return next(t["uuid"] for t in templates if t["name"] == name)
 
 
 def test_policy_create_returns_the_narrow_shape(client: TestClient) -> None:
     response = client.post(
         "/policies",
-        json={"uuid": TEMPLATE, "settings": {"name": "Baseline"}},
+        json={"uuid": _policy_template(client), "settings": {"name": "Baseline"}},
         headers=AUTH,
     )
     assert response.status_code == 200
     assert set(response.json()) == {"policy_id", "policy_name"}
 
 
-def test_policy_detail_is_flat_and_keeps_the_template(client: TestClient) -> None:
-    policy_id = client.post(
-        "/policies",
-        json={"uuid": TEMPLATE, "settings": {"name": "Baseline", "visibility": "shared"}},
-        headers=AUTH,
-    ).json()["policy_id"]
-
-    detail = client.get(f"/policies/{policy_id}", headers=AUTH).json()
-    assert detail["name"] == "Baseline"
-    assert detail["visibility"] == "shared"
-    assert detail["template_uuid"] == TEMPLATE
-    # The policy's own uuid is distinct from the template it derives from.
-    assert detail["uuid"] != TEMPLATE
-
-
 def test_policy_update_returns_an_empty_body(client: TestClient) -> None:
     policy_id = client.post(
-        "/policies", json={"uuid": TEMPLATE, "settings": {"name": "Baseline"}}, headers=AUTH
+        "/policies", json={"uuid": _policy_template(client), "settings": {"name": "Baseline"}}, headers=AUTH
     ).json()["policy_id"]
 
     updated = client.put(
@@ -204,13 +196,31 @@ def test_policy_update_returns_an_empty_body(client: TestClient) -> None:
     )
     assert updated.status_code == 200
     assert updated.content == b""
-    assert client.get(f"/policies/{policy_id}", headers=AUTH).json()["name"] == "Renamed"
+    assert client.get(f"/policies/{policy_id}", headers=AUTH).json()["settings"]["name"] == "Renamed"
+
+
+def test_policy_list_carries_the_documented_fields(client: TestClient) -> None:
+    template = _policy_template(client)
+    for name, visibility in (("Private", "private"), ("Shared", "shared")):
+        client.post(
+            "/policies",
+            json={"uuid": template, "settings": {"name": name, "visibility": visibility}},
+            headers=AUTH,
+        )
+
+    policies = client.get("/policies", headers=AUTH).json()["policies"]
+    assert {p["name"]: p["shared"] for p in policies} == {"Private": 0, "Shared": 1}
+    assert all(p["template_uuid"] == template for p in policies)
+    assert set(policies[0]) == {
+        "id", "template_uuid", "name", "description", "owner", "owner_id", "visibility", "shared",
+        "user_permissions", "creation_date", "last_modification_date", "no_target",
+    }
 
 
 def test_policy_visibility_is_validated(client: TestClient) -> None:
     response = client.post(
         "/policies",
-        json={"uuid": TEMPLATE, "settings": {"name": "x", "visibility": "everyone"}},
+        json={"uuid": _policy_template(client), "settings": {"name": "x", "visibility": "everyone"}},
         headers=AUTH,
     )
     assert response.status_code == 400

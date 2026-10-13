@@ -9,6 +9,11 @@ description: |-
 
 Retrieves a list of scan policies from Tenable.io.
 
+~> **Deprecated:** `tenableio_policies` will be removed in a future release. Use
+`tenableio_scan_templates_custom`, which lists the same user-defined scan templates
+under the name the Tenable.io UI uses, or `tenableio_scan_template_custom` to look
+one up by name or id.
+
 ## Example Usage
 
 ```terraform

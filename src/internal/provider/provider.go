@@ -109,6 +109,7 @@ func (p *TenableioProvider) Resources(_ context.Context) []func() resource.Resou
 	return []func() resource.Resource{
 		resources.NewScanResource,
 		resources.NewPolicyResource,
+		resources.NewScanTemplateCustomResource,
 		resources.NewFolderResource,
 		resources.NewExclusionResource,
 		resources.NewNetworkResource,
@@ -132,5 +133,11 @@ func (p *TenableioProvider) DataSources(_ context.Context) []func() datasource.D
 		datasources.NewTagCategoriesDataSource,
 		datasources.NewTagValuesDataSource,
 		datasources.NewTagAssetFiltersDataSource,
+		datasources.NewScanTemplateTenableDataSource,
+		datasources.NewScanTemplatesTenableDataSource,
+		datasources.NewPolicyTemplateTenableDataSource,
+		datasources.NewPolicyTemplatesTenableDataSource,
+		datasources.NewScanTemplateCustomDataSource,
+		datasources.NewScanTemplatesCustomDataSource,
 	}
 }

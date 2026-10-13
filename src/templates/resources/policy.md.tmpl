@@ -9,6 +9,11 @@ description: |-
 
 {{ .Description | trimspace }}
 
+~> **Deprecated:** `tenableio_policy` will be removed in a future release. Use
+`tenableio_scan_template_custom`, which manages the same user-defined scan templates
+and adds their settings and plugin families. A `moved` block migrates existing
+templates without recreating them; see the `tenableio_scan_template_custom` page.
+
 ## Example Usage
 
 {{ tffile (printf "examples/resources/%s/main.tf" .Name) }}

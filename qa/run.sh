@@ -33,7 +33,7 @@ PID_FILE="$QA_DIR/.mock.pid"
 LOG_FILE="$QA_DIR/.mock.log"
 TFRC="$QA_DIR/.dev.tfrc"
 
-STACKS=(tags core)
+STACKS=(tags core templates)
 
 # Quirk profiles. A correct provider must survive every one of them: the docs
 # do not say which the live API implements, so passing under only the default
@@ -47,7 +47,8 @@ STACKS=(tags core)
 #              answers with the scan object. The other three run the faithful
 #              shape, where a scan's description, scan_time_window and
 #              timestamps are never reported back at all, so the pair covers
-#              both readings.
+#              both readings. Policy details likewise report every setting,
+#              where the other three leave out those whose toggle is off.
 PROFILES=(strict preserve normalise echo)
 
 # Stack/profile pairs where the apply is expected to stop with a provider error,
@@ -74,7 +75,7 @@ profile_env() {
     strict)    echo "" ;;
     preserve)  echo "MOCK_OMITTED_DESCRIPTION=preserves MOCK_OMITTED_FILTERS=preserves" ;;
     normalise) echo "MOCK_LOWERCASE_CATEGORY_NAMES=1" ;;
-    echo)      echo "MOCK_SCAN_DETAILS_SETTINGS=report MOCK_SCAN_UPDATE_ECHO=object" ;;
+    echo)      echo "MOCK_SCAN_DETAILS_SETTINGS=report MOCK_SCAN_UPDATE_ECHO=object MOCK_POLICY_DETAILS_SETTINGS=all" ;;
     *) echo "unknown profile: $1" >&2; exit 2 ;;
   esac
 }
@@ -320,8 +321,14 @@ check_outputs() {
       expect agent_group_count 1
       expect exclusion_count 2
       expect policy_count 2
+      expect custom_template_count 2
+      expect custom_lookups_agree True
       expect scan_count 2
       expect scanner_count 2
+      expect scan_template_count 16
+      expect policy_template_count 15  # the external PCI template is scan-only
+      expect agent_malware_template_name agent_malware
+      expect agent_malware_template_title "malware scan"
       expect asset_count 2
       expect minimal_network_description ""
       expect minimal_network_ttl 180
@@ -332,6 +339,15 @@ check_outputs() {
       expect weekly_scan_time_window 180
       expect weekly_scan_launch WEEKLY
       expect weekly_scan_timezone US/Mountain
+      ;;
+    templates)
+      expect network_description "Internal network baseline"
+      expect network_icmp_ping_retries 3
+      expect network_compliance_timeout 600
+      expect network_webcrawl_max_depth 4
+      expect agent_refresh_days 14
+      expect scan_policy_matches True
+      expect minimal_has_owner True
       ;;
   esac
   (( failed == 0 )) && pass "outputs match"

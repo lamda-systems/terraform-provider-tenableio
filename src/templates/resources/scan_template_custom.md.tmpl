@@ -1,0 +1,61 @@
+---
+page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+subcategory: ""
+description: |-
+{{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# {{.Name}} ({{.Type}})
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+{{ tffile (printf "examples/resources/%s/main.tf" .Name) }}
+
+## Settings
+
+The `discovery`, `assessment`, `report`, `advanced` and `agent` blocks hold the
+template's settings, typed and named as in the Tenable.io API reference for
+[Create scan](https://developer.tenable.com/reference/scans-create) (a dot in an
+API name becomes `_`, and each block's preconfigured mode is `mode`).
+
+- **Only what you set is managed.** A setting left out keeps the default of the
+  Tenable-provided template, is not sent, and is not tracked.
+- **Removing a setting or a plugin family replaces the template.** Tenable.io keeps
+  any setting an update leaves out, so it cannot be cleared in place. Replacement
+  gives the template a new id; `create_before_destroy` keeps scans pointing at one.
+- **Some settings are not reported back.** Tenable.io leaves out settings whose
+  toggle is off (the web crawler settings while `assessment.scan_webapps` is off,
+  for example). The apply then warns that those values cannot be verified, and a
+  change made to them outside Terraform goes unnoticed.
+- **The plan checks the template.** A uuid from the scan template list, a
+  compliance template, or a setting documented only for the other kind of
+  template (network or agent) fails the plan rather than being discarded.
+
+## Import
+
+```shell
+terraform import tenableio_scan_template_custom.internal 45
+```
+
+An imported template starts with no settings tracked, so the first plan adds the
+ones the configuration sets, in place.
+
+## Migrating from `tenableio_policy`
+
+Rename the resource and add a `moved` block. The template keeps its id and is not
+recreated:
+
+```terraform
+resource "tenableio_scan_template_custom" "internal" {
+  # ... the former tenableio_policy arguments, without visibility
+}
+
+moved {
+  from = tenableio_policy.internal
+  to   = tenableio_scan_template_custom.internal
+}
+```
+
+{{ .SchemaMarkdown | trimspace }}

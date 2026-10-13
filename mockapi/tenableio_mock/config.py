@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class OnOmit(str, Enum):
@@ -65,6 +66,22 @@ class ScanUpdateEcho(str, Enum):
     OBJECT = "object"
 
 
+class PolicyDetailsSettings(str, Enum):
+    """Which settings ``GET /policies/{id}`` reports.
+
+    The docs say the response carries the settings stored in the policy, but
+    the documented example leaves out every setting that depends on a toggle
+    that is off -- the web crawler settings with ``scan_webapps`` off, the
+    file-scan locations with ``enable_file_scanning`` off. A provider that read
+    a missing setting as a cleared one would propose restoring it on every plan,
+    the same mistake that broke scan descriptions. :attr:`OMIT_INACTIVE`
+    follows the example; :attr:`ALL` reports every stored setting.
+    """
+
+    OMIT_INACTIVE = "omit_inactive"
+    ALL = "all"
+
+
 @dataclass(frozen=True)
 class Quirks:
     """Behaviours that are undocumented, or documented inconsistently.
@@ -109,6 +126,10 @@ class Quirks:
 
     #: What ``PUT /scans/{id}`` returns. See :class:`ScanUpdateEcho`.
     scan_update_echo: ScanUpdateEcho = ScanUpdateEcho.EMPTY
+
+    #: Which settings ``GET /policies/{id}`` reports. See
+    #: :class:`PolicyDetailsSettings`.
+    policy_details_settings: PolicyDetailsSettings = PolicyDetailsSettings.OMIT_INACTIVE
 
     #: Reject request bodies carrying fields the endpoint does not define.
     #:
@@ -168,6 +189,8 @@ def settings_from_env(env: dict[str, str] | None = None) -> Settings:
         ``omit`` (default, what live Tenable.io does) or ``report``.
     ``MOCK_SCAN_UPDATE_ECHO``
         ``empty`` (default) or ``object``.
+    ``MOCK_POLICY_DETAILS_SETTINGS``
+        ``omit_inactive`` (default, as the documented example) or ``all``.
     ``MOCK_LOWERCASE_CATEGORY_NAMES``
         Default off.
     ``MOCK_REJECT_UNKNOWN_FIELDS``
@@ -196,6 +219,9 @@ def settings_from_env(env: dict[str, str] | None = None) -> Settings:
             on_omitted_filters=omitted_filters,
             scan_details_settings=_env_details_settings(),
             scan_update_echo=_env_scan_update_echo(),
+            policy_details_settings=_env_enum(
+                "MOCK_POLICY_DETAILS_SETTINGS", PolicyDetailsSettings, PolicyDetailsSettings.OMIT_INACTIVE
+            ),
             lowercase_category_names=_env_bool("MOCK_LOWERCASE_CATEGORY_NAMES", False),
             reject_unknown_fields=_env_bool("MOCK_REJECT_UNKNOWN_FIELDS", False),
         ),
@@ -223,6 +249,17 @@ def _env_scan_update_echo() -> ScanUpdateEcho:
         return ScanUpdateEcho(raw)
     except ValueError as exc:
         valid = ", ".join(sorted(e.value for e in ScanUpdateEcho))
+        raise ValueError(f"{name} must be one of: {valid} (got {raw!r})") from exc
+
+
+def _env_enum(name: str, kind: type[Enum], default: Enum) -> Any:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    try:
+        return kind(raw)
+    except ValueError as exc:
+        valid = ", ".join(sorted(e.value for e in kind))
         raise ValueError(f"{name} must be one of: {valid} (got {raw!r})") from exc
 
 

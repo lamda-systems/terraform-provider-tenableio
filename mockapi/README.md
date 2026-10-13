@@ -44,7 +44,8 @@ Any syntactically valid `X-ApiKeys` header is accepted unless you pin
 | Exclusions | `POST`/`GET` `/exclusions`, `GET`/`PUT`/`DELETE` `/exclusions/{id}` |
 | Agent groups | `POST`/`GET` `/scanners/null/agent-groups`, `GET`/`DELETE` `/…/{id}` |
 | Scanners | `GET /scanners`, `GET /scanners/{id}` (read-only) |
-| Policies | `POST`/`GET` `/policies`, `GET`/`PUT`/`DELETE` `/policies/{id}` |
+| Templates | `GET /editor/{type}/templates`, `GET /editor/{type}/templates/{uuid}` (read-only; `scan`, `policy`, `remediation`) |
+| Policies (user-defined scan templates) | `POST`/`GET` `/policies`, `GET`/`PUT`/`DELETE` `/policies/{id}` |
 | Scans | `POST`/`GET` `/scans`, `GET`/`PUT`/`DELETE` `/scans/{id}` |
 | Workbenches | `GET /workbenches/assets`, `GET /workbenches/assets/{id}/info` (read-only) |
 
@@ -94,6 +95,28 @@ shape back for a provider that has to tolerate both. What the endpoint *does*
 report — `status`, `launch`, `enabled`, `targets`, the schedule — stays
 reported; the point is not "return less".
 
+**Template lists do not share uuids, and titles are not unique.** The same
+Tenable-provided template appears in the `scan` and `policy` lists of
+`/editor/{type}/templates`, and the docs never say its uuid is the same in both,
+so the mock gives each list its own. That is the reading under which a provider
+that takes a uuid from the wrong list fails. Titles repeat between a network
+template and its agent counterpart ("Malware Scan", "Policy Compliance
+Auditing"), as in the documented example; `is_agent` is `true` or `null`, never
+`false`. The uuids are synthetic, and the per-template details are a
+placeholder with the right shape, not a copy of any real template's settings.
+
+**User-defined templates (policies) answer in three shapes.** `POST`/`PUT
+/policies` take `{uuid, settings, plugins}` with the name, description and
+template settings flat inside `settings`. `GET /policies/{id}` answers the same
+nesting, every setting a string except `max_compliance_check_timeout` and
+`http_reauth_delay` (integers), and no metadata; `GET /policies` carries the
+metadata and no settings. A setting the template does not define is discarded
+without an error, an update keeps every setting it is not sent, and only the
+Advanced templates accept `plugins`. The settings each template defines come
+from the same Create scan reference as the provider's typed attributes
+(`template_settings.py`). The details leave out settings whose toggle is off,
+as the documented example does; `MOCK_POLICY_DETAILS_SETTINGS=all` reports them.
+
 **Several writes return nothing.** `POST /folders` returns only `{"id": N}`.
 `PUT /folders/{id}`, `PUT /policies/{id}`, `PUT /scans/{id}` and every `DELETE`
 return an empty body. The scan update is the unresolved one: the docs also show
@@ -117,6 +140,7 @@ every combination** — that is what the switches are for.
 | `MOCK_LOWERCASE_CATEGORY_NAMES` | off | on | Folds category names to lower case and echoes the folded form |
 | `MOCK_SCAN_DETAILS_SETTINGS` | `omit` | `report` | Whether `GET /scans/{id}` echoes back `description`, `scan_time_window` and the two timestamps |
 | `MOCK_SCAN_UPDATE_ECHO` | `empty` | `object` | Whether `PUT /scans/{id}` answers with no body or with the bare scan object |
+| `MOCK_POLICY_DETAILS_SETTINGS` | `omit_inactive` | `all` | Whether `GET /policies/{id}` leaves out settings whose toggle is off, as the documented example does |
 | `MOCK_REJECT_UNKNOWN_FIELDS` | off | on | Lint mode: 400 on a body field the endpoint does not define |
 
 Why these matter:

@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
 
@@ -36,6 +39,14 @@ type PolicyResourceModel struct {
 	LastModificationDate types.Int64  `tfsdk:"last_modification_date"`
 }
 
+// policyDeprecation is shown by Terraform on every plan that uses the resource,
+// and logged on every operation for runs whose warnings nobody reads.
+const policyDeprecation = "tenableio_policy is deprecated and will be removed in a future release. " +
+	"Use tenableio_scan_template_custom, which manages the same user-defined scan templates under the name " +
+	"the Tenable.io UI uses, and adds their settings and plugin families. Rename the resource and add a " +
+	"moved block (from = tenableio_policy.NAME, to = tenableio_scan_template_custom.NAME); the template " +
+	"keeps its id and nothing is recreated."
+
 func NewPolicyResource() resource.Resource {
 	return &PolicyResource{}
 }
@@ -46,7 +57,8 @@ func (r *PolicyResource) Metadata(_ context.Context, req resource.MetadataReques
 
 func (r *PolicyResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manages a scan policy (template) in Tenable.io.",
+		Description:        "Manages a scan policy (template) in Tenable.io.",
+		DeprecationMessage: policyDeprecation,
 		Attributes: map[string]schema.Attribute{
 			"id": schema.Int64Attribute{
 				Description: "The unique identifier for the policy.",
@@ -56,8 +68,12 @@ func (r *PolicyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				},
 			},
 			"template_uuid": schema.StringAttribute{
-				Description: "The UUID of the base scan template for this policy.",
-				Required:    true,
+				Description: "The UUID of the base scan template for this policy. Changing it replaces the " +
+					"policy: Tenable.io ignores it on update.",
+				Required: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"name": schema.StringAttribute{
 				Description: "The name of the policy.",
@@ -117,13 +133,13 @@ func (r *PolicyResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	createReq := client.PolicyCreateRequest{
-		UUID: plan.TemplateUUID.ValueString(),
-		Settings: client.PolicySettings{
-			Name:        plan.Name.ValueString(),
-			Description: plan.Description.ValueString(),
-			Visibility:  plan.Visibility.ValueString(),
-		},
+	tflog.Warn(ctx, policyDeprecation)
+
+	createReq := client.PolicyRequest{
+		TemplateUUID: plan.TemplateUUID.ValueString(),
+		Name:         plan.Name.ValueString(),
+		Description:  plan.Description.ValueString(),
+		Visibility:   plan.Visibility.ValueString(),
 	}
 
 	result, err := r.client.CreatePolicy(ctx, createReq)
@@ -134,21 +150,15 @@ func (r *PolicyResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	plan.ID = types.Int64Value(int64(result.PolicyID))
 
-	detail, err := r.client.GetPolicy(ctx, result.PolicyID)
+	details, summary, err := r.fetch(ctx, result.PolicyID)
 	if err != nil {
 		resp.Diagnostics.AddError("Error Reading Policy After Create", err.Error())
 		return
 	}
 
-	plan.Owner = types.StringValue(detail.Owner)
-	plan.OwnerID = types.Int64Value(int64(detail.OwnerID))
-	plan.CreationDate = types.Int64Value(int64(detail.CreationDate))
-	plan.LastModificationDate = types.Int64Value(int64(detail.LastModificationDate))
-
+	applyPolicyComputed(&plan, summary)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	requireEcho(&resp.Diagnostics, "tenableio_policy", "name", plan.Name.ValueString(), detail.Name)
-	requireEcho(&resp.Diagnostics, "tenableio_policy", "description", plan.Description.ValueString(), detail.Description)
-	requireEcho(&resp.Diagnostics, "tenableio_policy", "visibility", plan.Visibility.ValueString(), detail.Visibility)
+	r.verify(&resp.Diagnostics, &plan, details, summary)
 }
 
 func (r *PolicyResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -158,7 +168,9 @@ func (r *PolicyResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	detail, err := r.client.GetPolicy(ctx, int(state.ID.ValueInt64()))
+	tflog.Warn(ctx, policyDeprecation)
+
+	details, summary, err := r.fetch(ctx, int(state.ID.ValueInt64()))
 	if err != nil {
 		if client.IsNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -168,17 +180,7 @@ func (r *PolicyResource) Read(ctx context.Context, req resource.ReadRequest, res
 		return
 	}
 
-	state.Name = types.StringValue(detail.Name)
-	state.Description = types.StringValue(detail.Description)
-	state.Visibility = types.StringValue(detail.Visibility)
-	state.Owner = types.StringValue(detail.Owner)
-	state.OwnerID = types.Int64Value(int64(detail.OwnerID))
-	state.CreationDate = types.Int64Value(int64(detail.CreationDate))
-	state.LastModificationDate = types.Int64Value(int64(detail.LastModificationDate))
-	if detail.TemplateUUID != "" {
-		state.TemplateUUID = types.StringValue(detail.TemplateUUID)
-	}
-
+	mapPolicyState(&state, details, summary)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -195,15 +197,12 @@ func (r *PolicyResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	updateReq := client.PolicyUpdateRequest{
-		Settings: client.PolicySettings{
-			Name:        plan.Name.ValueString(),
-			Description: plan.Description.ValueString(),
-			Visibility:  plan.Visibility.ValueString(),
-		},
-	}
-	if plan.TemplateUUID.ValueString() != state.TemplateUUID.ValueString() {
-		updateReq.UUID = plan.TemplateUUID.ValueString()
+	tflog.Warn(ctx, policyDeprecation)
+
+	updateReq := client.PolicyRequest{
+		Name:        plan.Name.ValueString(),
+		Description: plan.Description.ValueString(),
+		Visibility:  plan.Visibility.ValueString(),
 	}
 
 	policyID := int(state.ID.ValueInt64())
@@ -212,22 +211,16 @@ func (r *PolicyResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	detail, err := r.client.GetPolicy(ctx, policyID)
+	details, summary, err := r.fetch(ctx, policyID)
 	if err != nil {
 		resp.Diagnostics.AddError("Error Reading Policy After Update", err.Error())
 		return
 	}
 
 	plan.ID = state.ID
-	plan.Owner = types.StringValue(detail.Owner)
-	plan.OwnerID = types.Int64Value(int64(detail.OwnerID))
-	plan.CreationDate = types.Int64Value(int64(detail.CreationDate))
-	plan.LastModificationDate = types.Int64Value(int64(detail.LastModificationDate))
-
+	applyPolicyComputed(&plan, summary)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	requireEcho(&resp.Diagnostics, "tenableio_policy", "name", plan.Name.ValueString(), detail.Name)
-	requireEcho(&resp.Diagnostics, "tenableio_policy", "description", plan.Description.ValueString(), detail.Description)
-	requireEcho(&resp.Diagnostics, "tenableio_policy", "visibility", plan.Visibility.ValueString(), detail.Visibility)
+	r.verify(&resp.Diagnostics, &plan, details, summary)
 }
 
 func (r *PolicyResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -244,29 +237,96 @@ func (r *PolicyResource) Delete(ctx context.Context, req resource.DeleteRequest,
 }
 
 func (r *PolicyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	policyID, err := strconv.ParseInt(req.ID, 10, 64)
+	policyIDInt, err := strconv.Atoi(req.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid Policy ID", fmt.Sprintf("Could not parse policy ID %q: %s", req.ID, err))
 		return
 	}
 
-	detail, err := r.client.GetPolicy(ctx, int(policyID))
+	details, summary, err := r.fetch(ctx, policyIDInt)
 	if err != nil {
 		resp.Diagnostics.AddError("Error Importing Policy", err.Error())
 		return
 	}
 
 	state := PolicyResourceModel{
-		ID:                   types.Int64Value(policyID),
-		TemplateUUID:         types.StringValue(detail.TemplateUUID),
-		Name:                 types.StringValue(detail.Name),
-		Description:          types.StringValue(detail.Description),
-		Visibility:           types.StringValue(detail.Visibility),
-		Owner:                types.StringValue(detail.Owner),
-		OwnerID:              types.Int64Value(int64(detail.OwnerID)),
-		CreationDate:         types.Int64Value(int64(detail.CreationDate)),
-		LastModificationDate: types.Int64Value(int64(detail.LastModificationDate)),
+		ID:           types.Int64Value(int64(policyIDInt)),
+		TemplateUUID: types.StringNull(),
+		Name:         types.StringValue(""),
+		Description:  types.StringValue(""),
+		Visibility:   types.StringValue("private"),
 	}
-
+	mapPolicyState(&state, details, summary)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+// fetch reads a policy's details, which carry its name and description, and
+// its list entry, which carries everything else this resource exposes.
+func (r *PolicyResource) fetch(ctx context.Context, policyID int) (*client.PolicyDetails, *client.PolicySummary, error) {
+	details, err := r.client.GetPolicyDetails(ctx, policyID)
+	if err != nil {
+		return nil, nil, err
+	}
+	summary, err := r.client.FindPolicy(ctx, policyID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return details, summary, nil
+}
+
+// mapPolicyState maps both responses into state, for Read and ImportState. A
+// field neither response reports keeps its state value.
+func mapPolicyState(state *PolicyResourceModel, details *client.PolicyDetails, summary *client.PolicySummary) {
+	state.Name = readReportedString(state.Name, details.Setting("name"))
+	state.Description = readReportedString(state.Description, details.Setting("description"))
+	if details.TemplateUUID != nil {
+		state.TemplateUUID = types.StringValue(*details.TemplateUUID)
+	}
+	if summary != nil {
+		state.Visibility = types.StringValue(summary.Visibility)
+		if state.TemplateUUID.IsNull() {
+			state.TemplateUUID = types.StringValue(summary.TemplateUUID)
+		}
+	}
+	applyPolicyComputed(state, summary)
+}
+
+// applyPolicyComputed settles the computed-only attributes from the list
+// entry, or keeps what state has when the list does not carry the policy.
+func applyPolicyComputed(m *PolicyResourceModel, summary *client.PolicySummary) {
+	if summary == nil {
+		// Still unknown only on create or update, where a value must be known
+		// once the apply finishes: null, rather than an invented zero.
+		if m.Owner.IsUnknown() {
+			m.Owner = types.StringNull()
+		}
+		if m.OwnerID.IsUnknown() {
+			m.OwnerID = types.Int64Null()
+		}
+		if m.CreationDate.IsUnknown() {
+			m.CreationDate = types.Int64Null()
+		}
+		if m.LastModificationDate.IsUnknown() {
+			m.LastModificationDate = types.Int64Null()
+		}
+		return
+	}
+	m.Owner = types.StringValue(summary.Owner)
+	m.OwnerID = types.Int64Value(int64(summary.OwnerID))
+	m.CreationDate = types.Int64Value(int64(summary.CreationDate))
+	m.LastModificationDate = types.Int64Value(int64(summary.LastModificationDate))
+}
+
+// verify fails the apply when the stored name, description or visibility
+// differs from the plan. Each is checked only where a response reports it.
+func (r *PolicyResource) verify(diags *diag.Diagnostics, plan *PolicyResourceModel, details *client.PolicyDetails, summary *client.PolicySummary) {
+	if name := details.Setting("name"); name != nil {
+		requireEcho(diags, "tenableio_policy", "name", plan.Name.ValueString(), *name)
+	}
+	if description := details.Setting("description"); description != nil {
+		requireEcho(diags, "tenableio_policy", "description", plan.Description.ValueString(), *description)
+	}
+	if summary != nil {
+		requireEcho(diags, "tenableio_policy", "visibility", plan.Visibility.ValueString(), summary.Visibility)
+	}
 }

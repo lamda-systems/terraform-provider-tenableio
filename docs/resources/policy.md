@@ -9,12 +9,21 @@ description: |-
 
 Manages a scan policy (template) in Tenable.io.
 
+~> **Deprecated:** `tenableio_policy` will be removed in a future release. Use
+`tenableio_scan_template_custom`, which manages the same user-defined scan templates
+and adds their settings and plugin families. A `moved` block migrates existing
+templates without recreating them; see the `tenableio_scan_template_custom` page.
+
 ## Example Usage
 
 ```terraform
-# Custom scan policy based on Advanced Network Scan template
+# Custom scan policy based on the Advanced Network Scan template
+data "tenableio_policy_template_tenable" "advanced" {
+  title = "Advanced Network Scan"
+}
+
 resource "tenableio_policy" "custom" {
-  template_uuid = "329692d8-ea42-4e96-acd6-7da6c3571c27d24bd260ef5f9e66"
+  template_uuid = data.tenableio_policy_template_tenable.advanced.uuid
   name          = "custom-advanced-scan"
   description   = "Custom policy for internal network assessment"
   visibility    = "shared"
@@ -27,7 +36,7 @@ resource "tenableio_policy" "custom" {
 ### Required
 
 - `name` (String) The name of the policy.
-- `template_uuid` (String) The UUID of the base scan template for this policy.
+- `template_uuid` (String) The UUID of the base scan template for this policy. Changing it replaces the policy: Tenable.io ignores it on update.
 
 ### Optional
 

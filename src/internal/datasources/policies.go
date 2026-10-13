@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/lamda-systems/terraform-provider-tenableio/internal/client"
 )
 
@@ -33,6 +34,12 @@ type PolicyItemModel struct {
 	TemplateUUID         types.String `tfsdk:"template_uuid"`
 }
 
+// policiesDeprecation is shown by Terraform on every plan that uses the data
+// source, and logged on every read for runs whose warnings nobody reads.
+const policiesDeprecation = "tenableio_policies is deprecated and will be removed in a future release. " +
+	"Use tenableio_scan_templates_custom, which lists the same user-defined scan templates under the name " +
+	"the Tenable.io UI uses, or tenableio_scan_template_custom to look one up by name or id."
+
 func NewPoliciesDataSource() datasource.DataSource {
 	return &PoliciesDataSource{}
 }
@@ -43,7 +50,8 @@ func (d *PoliciesDataSource) Metadata(_ context.Context, req datasource.Metadata
 
 func (d *PoliciesDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Retrieves a list of scan policies from Tenable.io.",
+		Description:        "Retrieves a list of scan policies from Tenable.io.",
+		DeprecationMessage: policiesDeprecation,
 		Attributes: map[string]schema.Attribute{
 			"policies": schema.ListNestedAttribute{
 				Description: "List of policies.",
@@ -87,6 +95,8 @@ func (d *PoliciesDataSource) Read(ctx context.Context, req datasource.ReadReques
 		return
 	}
 
+	tflog.Warn(ctx, policiesDeprecation)
+
 	result, err := d.client.ListPolicies(ctx)
 	if err != nil {
 		resp.Diagnostics.AddError("Error Listing Policies", err.Error())
@@ -99,7 +109,7 @@ func (d *PoliciesDataSource) Read(ctx context.Context, req datasource.ReadReques
 			ID:                   types.Int64Value(int64(p.ID)),
 			UUID:                 types.StringValue(p.UUID),
 			Name:                 types.StringValue(p.Name),
-			Description:          types.StringValue(p.Description),
+			Description:          types.StringValue(valueOrEmpty(p.Description)),
 			Owner:                types.StringValue(p.Owner),
 			OwnerID:              types.Int64Value(int64(p.OwnerID)),
 			Visibility:           types.StringValue(p.Visibility),

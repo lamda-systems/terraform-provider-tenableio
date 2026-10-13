@@ -48,7 +48,7 @@ func TestProviderSchema(t *testing.T) {
 		"tenableio_scan", "tenableio_policy", "tenableio_folder",
 		"tenableio_exclusion", "tenableio_network",
 		"tenableio_tag_category", "tenableio_tag_value",
-		"tenableio_agent_group",
+		"tenableio_agent_group", "tenableio_scan_template_custom",
 	}
 	for _, name := range expectedResources {
 		if _, ok := resp.ResourceSchemas[name]; !ok {
@@ -62,6 +62,9 @@ func TestProviderSchema(t *testing.T) {
 		"tenableio_scanners", "tenableio_agent_groups",
 		"tenableio_tag_categories", "tenableio_tag_values",
 		"tenableio_tag_asset_filters",
+		"tenableio_scan_template_tenable", "tenableio_scan_templates_tenable",
+		"tenableio_policy_template_tenable", "tenableio_policy_templates_tenable",
+		"tenableio_scan_template_custom", "tenableio_scan_templates_custom",
 	}
 	for _, name := range expectedDataSources {
 		if _, ok := resp.DataSourceSchemas[name]; !ok {

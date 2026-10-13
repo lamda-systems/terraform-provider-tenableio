@@ -1,0 +1,2 @@
+- [Typed attributes over maps](typed-attributes-over-maps.md) — user dislikes map attributes; use typed attrs, maps only as small scoped blocks
+- [Scan templates decisions](scan-templates-feature-decisions.md) — naming, replacement, Key Vault secrets, tenableio_policy is broken
