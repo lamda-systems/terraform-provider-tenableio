@@ -237,20 +237,20 @@ func (r *PolicyResource) Delete(ctx context.Context, req resource.DeleteRequest,
 }
 
 func (r *PolicyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	policyID, err := strconv.ParseInt(req.ID, 10, 64)
+	policyIDInt, err := strconv.Atoi(req.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid Policy ID", fmt.Sprintf("Could not parse policy ID %q: %s", req.ID, err))
 		return
 	}
 
-	details, summary, err := r.fetch(ctx, int(policyID))
+	details, summary, err := r.fetch(ctx, policyIDInt)
 	if err != nil {
 		resp.Diagnostics.AddError("Error Importing Policy", err.Error())
 		return
 	}
 
 	state := PolicyResourceModel{
-		ID:           types.Int64Value(policyID),
+		ID:           types.Int64Value(int64(policyIDInt)),
 		TemplateUUID: types.StringNull(),
 		Name:         types.StringValue(""),
 		Description:  types.StringValue(""),
